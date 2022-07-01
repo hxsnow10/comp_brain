@@ -1,0 +1,173 @@
+#!/usr/bin/env python
+# -*- encoding=utf8
+#
+#   Filename:       cog_arch
+#   Author:         xiahong(xiahahaha01@gmail.com)
+#   Create:         2022/06/18
+#   Description:    ---
+"""Coginive Arch HighLevel Iterface.
+
+## Interface
+agent = CognitiveArch()
+agent.learn(tasks)
+agent.learn(env)
+
+## System description
+preception: x->understand->out_world_map
+working_memory：RNN(h = in_world, i/o = out_world_map)
+world_map: out_world_map + in_world_map
+predict_next_world: predict on world_map
+reawrd_system: eval value of state, value of  predict_state
+decision_system: find best action to max fututre value.
+"""
+
+import os
+import sys
+from enum import Enum
+
+import argparse
+
+from ..dynamic_net.base import *
+
+class WorkMode(Enum):
+    Normal = 1
+    Predict = 2
+    Train = 3
+    AntiTrain = 4
+
+class Agent(object):
+    """agent with preception and action maxmizing some target.
+    here we discrete time as default.
+    """
+    def __init__(self):
+        self.build_network()
+    
+    def work_step(self, env_t, mode):
+        action = None
+        if mode==WorkMode.Normal:
+            # 智能体正常模式，在线学习，预测与学习同步进行
+            action = self.network.neuron_update()
+            self.network.synpase_update()
+        elif mode==WorkMode.Predict:
+            action = self.network.neuron_update()
+        elif mode==WorkMode.Train:
+            self.network.synpase_update()
+        return action
+
+    def build_network(self):
+        """build a self.network obj  has :
+            * neuron_update: forward phase, return action
+            * synpase_update: learning phase
+        """
+        pass
+
+    def work(self, env, env_seed, mode=WorkMode.Normal, max_step=1000):
+        """in faced of env, return action with side effect of self-change.
+        """
+        observation, info = env.reset(seed=env_seed, return_info=True)
+        for i in range(max_step):
+            action = agent.work_step(env_step, mode)
+            # 确保向量action可以被env理解
+            observation, reward, done, info = env.step(action)
+            if done:
+                break
+
+class SimpleAIAgent(Agent):
+    """基于完全传统AI计算图神经网络的agent
+    graph(env_t, state_{t-1})->action_t, state_{t}
+    """
+    def build_network(self):
+        """
+        """
+        class network():
+
+            def __init__(self):
+                self.optimier = tf.keras.optimizers.SGD(learning_rate=0.01)
+            
+            def neuron_update(self, env_t):
+                """
+                vision_t, char_t = env_t
+                # vision
+                vision_repr = cnn(vision_t) 
+        
+                # sequence:假设输入是一个序列
+                char_embeddings = word_embedding(char_t)
+                nlp_repr = rnn(char_embeddings)
+                state = rnn(state, [nlp_repr, vision_repr])
+                value = mlp(state)
+                # action 定义为多任务,action假设为多维float向量,state->action 定义为policy函数
+                action = mlp(state)
+                """
+                pass
+
+            def synpase_update(self):
+                """
+                with tf.GradientTape() as tape:
+                    loss_value = loss(model, inputs, targets, training=True)
+                    return loss_value, tape.gradient(loss_value, model.trainable_variables)
+                self.optimizer.apply_gradients(zip(grads, model.trainable_variables))
+                """
+                pass
+        self.network = network()
+
+class HumanBrainAgent(Agent):
+    """基于对大脑智能仿真的智能体，关注内部模块
+    核心概念：动力学；目标系统；决策规划；短期记忆；注意；学习；图像；自然语言；
+    TODO : 考虑一些非计算的特性，比如注意力（能量的分配），大脑疲劳机制，多巴胺失调，做梦
+    """
+
+    def build_network():
+        network = Network()
+        network.set_activation("relu")
+
+        # reward
+        target = Neurons(1, leak_init=0.1)
+        sub_targets = Neurons(1000, leak_init=0.1, self_dynamics=rnn_train)
+        network.link(sub_targets, target, "mlp:2", layer_sizes = [] )
+
+        # lang-working-memroy
+        lang_state = Neurons(1000000, leak_init = 0.1, self_dynamics=rnn_train)
+        network.link(lang_state, sub_target, "mlp:3", layer_sizes = [])
+
+        # vision-working-memory
+        vision_state = Neurons(1000000, leak_init = 0.1, self_dynamics=rnn_train)
+        network.link(vision_state, sub_target, "mlp:3", layer_sizes = [])
+
+        # multi-model
+        networki.link(vision_state, lang_state, "mlp:3", layer_sizes = [])
+        networki.link(lang_state, vision_state, "mlp:3", layer_sizes = [])
+
+        input_vision = Neurons(1000, leak_init=1)
+        model =  tf.layers.cnn()
+        def CNN(states, weights):
+            return model(states)
+        network.link(input_vision, vision_state, CNN)
+        
+        input_phone = Neurons(1000, leak_init=1)
+        input_char = Neurons(1000, leak_init=1)
+        model =  tf.layers.rnn()
+        def RNN(states, weights):
+            return model(states)
+        network.link(input_phone, lang_state, RNN)
+
+        # top-down attention
+        
+        # attention, conscioueness, energy
+
+        # policy-based decision
+        actions = Neurons(1000,leak_init = 1)
+        # TODO: build polciy function
+        # TODO: build planning
+        network.link(state, actions, "mlp")
+
+        # value-based planning decision ?
+        # 这个看起来更是一个时序上的过程，而不是空间上的神经网络
+        # 脑中想象不同的state，计算reward，并保存，最后对比！
+        self.network = network
+
+if __name__=='__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-i", "--config_path", default="./config.py")
+    args = parser.parse_args()
+    main(args.config_path)
+
