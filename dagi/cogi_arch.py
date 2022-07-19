@@ -72,44 +72,6 @@ class Agent(object):
             if done:
                 break
 
-class SimpleAIAgent(Agent):
-    """基于完全传统AI计算图神经网络的agent
-    graph(env_t, state_{t-1})->action_t, state_{t}
-    """
-    def build_network(self):
-        """
-        """
-        class network():
-
-            def __init__(self):
-                self.optimier = tf.keras.optimizers.SGD(learning_rate=0.01)
-            
-            def neuron_update(self, env_t):
-                """
-                vision_t, char_t = env_t
-                # vision
-                vision_repr = cnn(vision_t) 
-        
-                # sequence:假设输入是一个序列
-                char_embeddings = word_embedding(char_t)
-                nlp_repr = rnn(char_embeddings)
-                state = rnn(state, [nlp_repr, vision_repr])
-                value = mlp(state)
-                # action 定义为多任务,action假设为多维float向量,state->action 定义为policy函数
-                action = mlp(state)
-                """
-                pass
-
-            def synpase_update(self):
-                """
-                with tf.GradientTape() as tape:
-                    loss_value = loss(model, inputs, targets, training=True)
-                    return loss_value, tape.gradient(loss_value, model.trainable_variables)
-                self.optimizer.apply_gradients(zip(grads, model.trainable_variables))
-                """
-                pass
-        self.network = network()
-
 class HumanBrainAgent(Agent):
     """基于对大脑智能仿真的智能体，关注内部模块
     核心概念：动力学；目标系统；决策规划；短期记忆；注意；学习；图像；自然语言；
@@ -117,26 +79,26 @@ class HumanBrainAgent(Agent):
     """
 
     def build_network():
-        network = Network()
-        network.set_activation("relu")
+        network = Network(activation = tf.relu, leak = 0.1)
 
         # reward
-        target = Neurons(1, leak_init=0.1)
-        sub_targets = Neurons(1000, leak_init=0.1, self_dynamics=rnn_train)
+        target = Neurons(1)
+        sub_targets = Neurons(1000, self_dynamics=rnn_train)
         network.link(sub_targets, target, "mlp:2", layer_sizes = [] )
 
         # lang-working-memroy
-        lang_state = Neurons(1000000, leak_init = 0.1, self_dynamics=rnn_train)
+        lang_state = Neurons(1000000, self_dynamics=rnn_train)
         network.link(lang_state, sub_target, "mlp:3", layer_sizes = [])
 
         # vision-working-memory
-        vision_state = Neurons(1000000, leak_init = 0.1, self_dynamics=rnn_train)
+        vision_state = Neurons(1000000, self_dynamics=rnn_train)
         network.link(vision_state, sub_target, "mlp:3", layer_sizes = [])
 
         # multi-model
         networki.link(vision_state, lang_state, "mlp:3", layer_sizes = [])
         networki.link(lang_state, vision_state, "mlp:3", layer_sizes = [])
 
+        # 无历史的网络有2种形式：1）直接使用tf的算子 2）把neuron的leak设置为1
         input_vision = Neurons(1000, leak_init=1)
         model =  tf.layers.cnn()
         def CNN(states, weights):
@@ -156,13 +118,20 @@ class HumanBrainAgent(Agent):
 
         # policy-based decision
         actions = Neurons(1000,leak_init = 1)
-        # TODO: build polciy function
-        # TODO: build planning
-        network.link(state, actions, "mlp")
+        network.link(state, actions, "mlp:3")
+        # forward could be either graph or dynamics based. equally.
+        # Q(V(s,a)) Q(V(s,[a1,a2,..])) 都涉及到了时序过程，短期记忆的参与，而不是独立的结构
+        # 大脑是否有某个东西来指导包括这个思考过程呢？？即短期记忆的思考过程
+        # 换言之. planning是被转化为RNN参数而非显式编码的
+        
+        # 决策结果应该可以影响思考过程
+        uncerntaty = F(actions)
+        network.link(actions, state, "mlp:3")
+        network.link(sub_targets, state, "mlp:3")
+        
+        # 如果想象中的高价值的状态，应该把它的想象行为加强置信,这时行为应该已经触发了但未表达
+        network.link(targets, actions, "mlp:3")
 
-        # value-based planning decision ?
-        # 这个看起来更是一个时序上的过程，而不是空间上的神经网络
-        # 脑中想象不同的state，计算reward，并保存，最后对比！
         self.network = network
 
 if __name__=='__main__':

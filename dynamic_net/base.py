@@ -57,7 +57,7 @@ class Neurons(object):
         shape: 一般是[batch_size, neuron_size]
         init_states: 初始值
         leak_init: 默认值  TODO: 进一步 leak也可以是一个函数
-        TODO: consider spike mode
+        TODO: add LTF activation
         self_dynamics:
             * "rnn_train"
             * "leak_train"
@@ -76,6 +76,7 @@ class Neurons(object):
         if activation = None:
             activation = tf.relu
         self.activation = activation
+        self.out_states = self.activation(tf.Variable(init_states, name=name))
 
     def get_val(self):
         """return value of states"""
@@ -98,6 +99,7 @@ class Neurons(object):
         得先把所有神经元的下个状态算出来，保证仿真不产生时间不合法的依赖
         """
         self.states = self.next_states
+        self.out_states = self.activation(self.states)
 
 class Synpase(object):
 
@@ -116,11 +118,11 @@ class Synpase(object):
             synpase_shapes: list of shape
             synpase_inits: list of init val
             neuron_dynamic_fn:
-                fn(neuron_tensors = [ne0, ne1, ...], synpase_tensors, synpase) -> [ne_up0, ne_up1, ...]
+                fn(neuron_tensors = [sne0, sne1, ...], synpase_tensors, synpase) -> [ne_up0, ne_up1, ...]
                 up_i has same shape of ne_i.states
                 如果需要高阶信息，会存在synpase中;
             synpase_dynamic_fn:
-                fn(neuron_tensors = [ne0, ne1, ...], synpase_tensors, synpse) -> [syn0_up, syn1_up, ...]
+                fn(neuron_tensors = [sne0, sne1, ...], synpase_tensors, synpse) -> [syn0_up, syn1_up, ...]
                 实际上他是pre_neuron(t), post(t), synpase(t)的函数,换言之，需要内部变量记录过去信息。
                 因为要涉及到结构与突触动力学的解耦，但同时提供突触动力学的灵活性，所以fn传入了synpase自身：
                 比如说涉及高阶states的更新与使用；
@@ -144,12 +146,13 @@ class Synpase(object):
         #self.synpase_dynamic()
 
     def neuron_dynamic(self):
-        self.neurons_implacts = control_lr*self.neuron_dynamic_fn([ne.states for ne in self.neurons], self.weights, self)
+        self.neurons_implacts = control_lr*self.neuron_dynamic_fn([ne.out_states for ne in self.neurons], self.weights, self)
         for k,implact in enumerate(self.neurons_implacts):
             self.neurons[k].add_synpase_implact(implact)
 
     def synpase_dynamic(self, control_lr=1):
-        self.synpase_implacts = control_lr*self.learning_rate * self.synpase_dynamic_fn([ne.states for ne in self.neurons], self.weights, self)
+        self.synpase_implacts = control_lr*self.learning_rate *\
+                self.synpase_dynamic_fn([ne.out_states for ne in self.neurons], self.weights, self)
         for k,weight in self.synpase_implacts:
             self.weights[k]+=self.synpase_implacts[k]
 
@@ -259,10 +262,12 @@ class network():
     """ a class to manage neurons, synpases, forward, backword
     """
 
-    def __init__(self, neurons, synpases):
+    def __init__(self, neurons, synpases, activation = None, leak = 0.1):
         self.neuron_names = []
         self.neurons = neurons
         self.synpases = synpases
+        self.activation = activation # default activation
+        self.leak = leak # default activation
 
     def link(self, pre_neron, post_neuron, mode = "mlp", layer_sizes = []):)
         if pre_neuron.name not in self.neuron_names:
@@ -270,6 +275,12 @@ class network():
         if post_neuron.name not in self.neuron_names:
             self.neurons.append(post_neuron)
         neurons, synpases = link(pre_neron, post_neuron, mode, layer_sizes)
+        if self.activation:
+            for i in range(len(neurons)):
+                if not neurons[i].activation:
+                    neurons[i].activation = self.activation
+                if not neurons[i].leak:
+                    neurons[i].activation = leak
         self.neurons.extend(neurons)
         self.synpases.extend(synpases)
 
