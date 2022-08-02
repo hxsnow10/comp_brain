@@ -9,6 +9,10 @@
 
 2. 每次MR，在最前面插入相关的release_notes，一般把修正版号+1
 ```
+## Release 0.0.3 - 2020/08/02
+* 增加了env模块，包括MergeEnv，基于传统数据(监督与无监督)的Env等
+* 增加了stm回忆任务的数据自动生成脚本
+
 ## Release 0.0.2 - 2020/06/30
 * 搭建了dagi的框架
 * 重构了动态网络的基础neuron, synpase以及stdp,chl,pc等上层
