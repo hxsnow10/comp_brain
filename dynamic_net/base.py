@@ -71,7 +71,6 @@ class Neurons(object):
         self.states = tf.Variable(init_states, name=name)
         self.leak = tf.Variable(leak_init)
         self.synpase_implact = []
-        self.next_states = (1 - self.leak) * self.states
         self.clamped = False
         if activation = None:
             activation = tf.relu
@@ -92,14 +91,44 @@ class Neurons(object):
     def add_synpase_implact(self, implact):
         if self.clampled: return None
         self.synpase_implact.append(implact)
-        self.next_states = self.next_states + impact
+        self.sum_implacts = self.sum_implacts + impact
 
     def forward(self):
         """
         得先把所有神经元的下个状态算出来，保证仿真不产生时间不合法的依赖
         """
-        self.states = self.next_states
+        self.states = (1-self.leak)*self.states+self.sum_implacts
         self.out_states = self.activation(self.states)
+        self.sum_implacts = 0
+
+class SpikingNeuron(Neuron):
+
+    def __init__(self, name, shape=None, init_satets=None, 
+                 activation = None,
+                 leak_init = 0.1, 
+                 self_dynamics = None,
+                 visiable = False,
+                 trigger_th = 10,
+                 trigger_reset = 5,
+                 surrogate = True
+                )
+        super(self, SpikingNeuron).__init__(name, shape, init_satets, activation, leak_init, self_dynamics, visiable)
+        self.trigger_th = trigger_th
+        self.trigger_reset = trigger_reset
+        self.surrogate = surrogate
+
+    def forward(self):
+        """
+        得先把所有神经元的下个状态算出来，保证仿真不产生时间不合法的依赖
+        """
+        # 可变的地方1：在这个next的式子
+        self.states = (1-self.leak)*self.states+self.sum_implacts+self.leak*self.trigger_reset
+        # TODO: why not add nonlinear: self.states = self.activation(self.states)
+        self.out_states = tf.cast(self.states>self.trigger, tf.int32)
+        # 可变的地方2：out_states的值域 self.out_states = tf.cast(self.states/self.trigger, tf.int32)
+        # 如果允许发超过1的，下式子要变
+        # what about, trigeer many times in a time-step
+        self.states = (1-self.out_states)*self.states+self.out_states*self.trigger_reset
 
 class Synpase(object):
 
