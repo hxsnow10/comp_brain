@@ -49,7 +49,9 @@ class Neurons(object):
                  activation = None,
                  leak_init = 0.1, 
                  self_dynamics = None,
-                 visiable = False
+                 visiable = False,
+                 error = False,
+                 extend_vars = []
                 )
         """
         ## Args
@@ -64,6 +66,8 @@ class Neurons(object):
             * "leak_static"
             self-dynamics实际上是synpase, 那么work的时候也要触发这里的动力学,更复杂的动力学还是通过synpase去管理?
         visiable: only visiable neurons could be set manualy
+        error: with error node
+        extend_vars: more neuron vars
         """
         self.shape = shape
         self.name = name
@@ -76,6 +80,12 @@ class Neurons(object):
             activation = tf.relu
         self.activation = activation
         self.out_states = self.activation(tf.Variable(init_states, name=name))
+        self.error = tf.zeros_like(self.states) 
+        self.all_states = [ self.states, self.error]
+        self.init_more()
+
+    def init_more(self):
+        pass
 
     def get_val(self):
         """return value of states"""
@@ -83,23 +93,47 @@ class Neurons(object):
     def set_val(self, val, clampled):
         """set value of states of visiable neurons"""
         tf.compat.v1.assign_add(self.states, val)
+    
+    def add_error(self, val, clampled):
+        """外部直接提供error信号
+        按道理不是提供target信号吗？
+        可以使用TF内部的能力，target=F(states), error = dtarget/dstates
+        """
+        tf.compat.v1.assign_add(self.error, val)
 
     def clamp(self, val):
         self.states = val
         self.clamped = True
-
-    def add_synpase_implact(self, implact):
+    
+    def add_implact(self, implact):
         if self.clampled: return None
-        self.synpase_implact.append(implact)
-        self.sum_implacts = self.sum_implacts + impact
+        if type(implact)=type([1,2,3]):
+            self.sum_states_implacts = self.sum_states_implacts + impact[0]
+            self.sum_error_implacts = self.sum_error_implacts + impact[1]
+        else:
+            self.sum_states_implacts = self.sum_states_implacts + impact
+        return None
 
     def forward(self):
         """
         得先把所有神经元的下个状态算出来，保证仿真不产生时间不合法的依赖
         """
-        self.states = (1-self.leak)*self.states+self.sum_implacts
+        self.states = (1-self.leak)*self.states+self.sum_states_implacts
         self.out_states = self.activation(self.states)
-        self.sum_implacts = 0
+        self.sum_states_implacts = 0
+
+        self.error = (1-self.error_leak)*self.error+self.sum_error_implacts
+        self.out_error = self.error_activation(self.states)
+        self.sum_error_implacts = 0
+
+class ForwardNeurons(Neurons)
+    """无历史因素"""
+    def init_more(self):
+        self.leak_init = 1
+
+# TODO： predictive coding怎么整？
+# 需要当前状态与历史预测，需要一个预测网络。
+# [neuron, neighbors]->[predict_next] predict_next->last_predict, neuron,last_predict->targetNeuron
 
 class SpikingNeuron(Neuron):
 
@@ -137,8 +171,6 @@ class Synpase(object):
                  neurons,
                  synpase_shapes,
                  synpase_inits,
-                 neuron_dynamic_fn=None,
-                 synpase_dynamic_fn=None,
                  synpase_dynamic_fn_past_order = 0):
         """Multi-Head Synapase
 
@@ -146,15 +178,6 @@ class Synpase(object):
             neurons: a list of linked neurons
             synpase_shapes: list of shape
             synpase_inits: list of init val
-            neuron_dynamic_fn:
-                fn(neuron_tensors = [sne0, sne1, ...], synpase_tensors, synpase) -> [ne_up0, ne_up1, ...]
-                up_i has same shape of ne_i.states
-                如果需要高阶信息，会存在synpase中;
-            synpase_dynamic_fn:
-                fn(neuron_tensors = [sne0, sne1, ...], synpase_tensors, synpse) -> [syn0_up, syn1_up, ...]
-                实际上他是pre_neuron(t), post(t), synpase(t)的函数,换言之，需要内部变量记录过去信息。
-                因为要涉及到结构与突触动力学的解耦，但同时提供突触动力学的灵活性，所以fn传入了synpase自身：
-                比如说涉及高阶states的更新与使用；
             dynamic mode:
                 * y_t += f(x_t)
                 ** get global acctractor
@@ -168,33 +191,78 @@ class Synpase(object):
         self.weights = None
         self.next_weights = None
         self.weights_update_op = None
-        self.neuron_dynamic_fn = neuron_dynamic_fn
-        self.synpase_dynamic_fn = synpase_dynamic_fn
+        self.neuron_dynamic_imp = neuron_dynamic_imp
+        self.synpase_dynamic_imp = synpase_dynamic_imp
         self.learnin_rate = tf.Variable(learning_rate)
         #self.neuron_dynamic()
         #self.synpase_dynamic()
+    
+    def neuron_states_dynamic_imp(self):
+        return 0
+    
+    def neuron_error_dynamic_imp(self):
+        return 0
+
+    def neuron_dynamic_imp(self):
+        """
+        fn(neurons, synpase) -> [ [ne1_var1_up, ne1_var2_up, ...], ... ]
+        """
+        states_implact = self.neuron_states_dynamic_imp()
+        # 这样导致error存在一个step的延迟
+        error_impalct = self.neuron_error_dynamic_imp()
+        return [states_impalct, error_impalct]
+
+    def synpase_dynmaic_imp(self):
+        """
+        fn(neurons, synpase) -> [syn0_up, syn1_up, ...]
+        实际上他是pre_neuron(t), post(t), synpase(t)的函数,换言之，需要内部变量记录过去信息。
+        因为要涉及到结构与突触动力学的解耦，但同时提供突触动力学的灵活性，所以fn传入了synpase自身：
+        比如说涉及高阶states的更新与使用；
+        """
+        raise("Not Implemented")
 
     def neuron_dynamic(self):
-        self.neurons_implacts = control_lr*self.neuron_dynamic_fn([ne.out_states for ne in self.neurons], self.weights, self)
+        # TODO impalct could be tensor of list_of_tensor
+        self.neurons_implacts = [[control_lr*var] for var in nvars for nvars in self.neuron_dynamic_imp()]
         for k,implact in enumerate(self.neurons_implacts):
-            self.neurons[k].add_synpase_implact(implact)
+            self.neurons[k].add_implact(implact)
 
-    def synpase_dynamic(self, control_lr=1):
-        self.synpase_implacts = control_lr*self.learning_rate *\
-                self.synpase_dynamic_fn([ne.out_states for ne in self.neurons], self.weights, self)
-        for k,weight in self.synpase_implacts:
-            self.weights[k]+=self.synpase_implacts[k]
+class TargetBPSynpase(Synpase):
+    """考虑一种真实bp形成的突触，它的动力学是1)fn(neurons) update  2）计算其中一个neuron对其他neuron的梯度，反馈error
+    """
 
-def hebbian_synpase_fn(stetes, weights, synpase):
+    def set_traget_neuron_index(self, idx):
+        self.target_ne_idx = idx
+
+    def neuron_error_dynamic_imp(self):
+        target = self.neurons[self.target_ne_idx].states
+        for ne in self.neurons:
+            ne_impalct = [0,tf.gradient(target, ne.last_states])
+            rval.append(ne_impalct)
+        return rval
+
+class MseSynpase(TargetBPSynpase):
+    
+    mse = tf.keras.losses.MeanSquaredError()
+    target_ne_idx = 2
+    
+    def neuron_states_dynamic_imp(self):
+        y,y_true = MseSynpase.neurons[0].states, self.neurons[1].states
+        target = self.mse(y, y_true)
+        return [0,0,target]
+
+class HebbianSynpase(Synpase):
+
+    def synpase_dynmaic_imp(self):
     """
     shape of states1/2=  [batch, size]
     shape of return = [[size1, size2], [size2, size3], ...]
     """
-    states1, states2 = states
+    states1, states2 = self.neurons[0].states, self.neurons[1].states
     rval = if.matmul(tf.expand_dims(states1,2),tf.expand_dims(states2,1))
     return rval
 
-class stdp_synpase_fn(object):
+class STDPSynpase(Synpase):
     """STDP fn
     here we implement STDP : \delta(W)=lr*pre_state*\devirate(post_state)
     post_devirate_{t+1} =  (post_states_{t}-post_states_{t-1})/(1*dt)
@@ -202,32 +270,32 @@ class stdp_synpase_fn(object):
     when state, next_state, we get new 
     here k*dt should could ot be very big.
     """
-    def __init__(self, post_devirate_decay=1):
+    def init(self, post_devirate_decay=1):
         self.post_devirate = tf.Variable(post_neuron.shape())
         self.post_devirate_decay = post_devirate_decay
 
-    def __call__(self, states, weights, synpase):
+    def synpase_dynamic_imp(self):
         # TODO divide timestamp
         self.post_devirate = (1-self.post_devirate_decay)*synpase.neuron_implacts + \
                 self.post_devirate_decay*self.post_devirate
-        pre_states =  states[0]
+        pre_states =  self.neurons[0].states
         synpase_update = self.post_devirate*pre_states
         return [synpase_update]
 
-def bilinear_neuron_fn(states, weights, synpase):
-    states1, states2 = states
-    implact_2 = go_factor * tf.matmul(states1, self.weights)
-    implact_1 = back_factor * \
-        tf.matmul(states2, self.weights, transpose_b=True)
-    return [implact_1, implact_2]
+class ErrorBPSynpase(Synpase):
+    
+    def synpase_dynamic_imp(self):
+        states1 = self.neurons[0].out_states
+        # 按公式是要用out_states
+        error2 = self.neurons[1].error
+        rval = if.matmul(tf.expand_dims(states1,2),tf.expand_dims(error2,1))
+        return [rval]
 
 class BiLinearSynpase(Synpase):
     """Bi Linear Synpase.
 
     """
     def __init__(self, name, pre_neuron, post_neuron, 
-                 neuron_dynamic_fn = bilinear_neuron_fn,
-                 synpase_dyamic_fn = hebbian_synpase_fn,
                  go_factor=1, back_factor=1):
         neurons = [pre_neuron, post_neuron]
         self.weights = tf.Variable(
@@ -235,17 +303,32 @@ class BiLinearSynpase(Synpase):
         super(BiLinearSynpase, self).__init__(name, neurons, shape, init,
                                               neuron_dynamic_fn,
                                              synpase_dynamic_fn)
+    def neuron_states_dynamic_imp(self):
+        states1, states2 = self.neurons[0].states, self.neurons[1].states
+        implact_2 = self.go_factor * tf.matmul(states1, self.weights)
+        implact_1 = self.back_factor * \
+            tf.matmul(states2, self.weights, transpose_b=True)
+        return [implact_1, implact_2]
 
-class LinearSynpase(BiLinearSynpase):
-    def __init__(self, name, pre_neuron, post_neuron,
-                 neuron_dynamic_fn = bilinear_neuron_fn,
-                 synpase_dyamic_fn = hebbian_synpase_fn)
+class LinearSynpase(Synpase):
+    def __init__(self, name, pre_neuron, post_neuron, error=True)
         super(LinearSynpase, self).__init__(name, name, pre_neuron, post_neuron,
-                                              neuron_dynamic_fn,
-                                             synpase_dynamic_fn)
-                                            go_facto r=1, back_factor=0)
+                                            go_factor=1, back_factor=0)
+    def synpase_dynamic_imp(self):
+        states1, states2 = self.neurons[0].states, self.neurons[1].states
+        error1, error2 = self.neurons[0].error, self.neurons[1].error
+        implact_2 = [tf.matmul(states1, self.weights), 0]
+        if error:
+            implact_1 = self.back_factor * \
+                tf.matmul(error2, self.weights, transpose_b=True)
+            implact_1 = [0, implact_1]
+        else:
+            implact_1 = [0,0]
+        return [implact_1, implact_2]
 
-def link(pre_neron, post_neuron, layer = "mlp", layer_sizes = []):
+# 使用type(Name, baseclasses)可以动态创建class
+
+def link(synpase_type, pre_neron, post_neuron, layer = "mlp", layer_sizes = []):
     """
     mode: how to link two neurons
     * linear
@@ -257,9 +340,9 @@ def link(pre_neron, post_neuron, layer = "mlp", layer_sizes = []):
         def neuron_dynamic_fn([pre_state, post_state]):
             update = layer(pre_state)
             return [0, update]
-        synpase = Synpase(pre_state, post_state, neuron_dynamic_fn, None)
+        synpase = synpase_type(pre_state, post_state, neuron_dynamic_fn, None)
     elif layer=="linear":
-        synpases = [ LinearSynpase(pre_neuron, post_neuron)]
+        synpases = [ synpase_type(pre_neuron, post_neuron)]
     elif layer[:3]=="mlp":
         """ high order synpase consist multi layer 
         pre_neuron(n)->[ iter_neruon[n0] -> ... iter_neuron[nk] ] -> post_neuron[m]
@@ -282,7 +365,7 @@ def link(pre_neron, post_neuron, layer = "mlp", layer_sizes = []):
         for k, layer_size in enumerate(layer_sizes):
             nname = name+"iter_neuron_k"
             neuron = Neurons(nname, layer_size)
-            synpases.append(link(neurons[-1], neuron))
+            synpases.append(link(synpase_type, neurons[-1], neuron))
             neurons.append(neuron)
 
     return synpases
@@ -291,23 +374,29 @@ class network():
     """ a class to manage neurons, synpases, forward, backword
     """
 
-    def __init__(self, neurons, synpases, activation = None, leak = 0.1):
+    def __init__(self, neurons=[], synpases=[], activation = None, leak = 0.1, error = None, synpase_type=None):
         self.neuron_names = []
         self.neurons = neurons
         self.synpases = synpases
         self.activation = activation # default activation
         self.leak = leak # default activation
+        self.error = None
+        self.synpase_tye = synpase_type
 
-    def link(self, pre_neron, post_neuron, mode = "mlp", layer_sizes = []):)
+    def link(self, pre_neron, post_neuron, synpase_type = None, mode = "mlp", layer_sizes = []):
+        if not synpase_type:
+            synpase_type = self.synpase_tye
         if pre_neuron.name not in self.neuron_names:
             self.neurons.append(pre_neuron)
         if post_neuron.name not in self.neuron_names:
             self.neurons.append(post_neuron)
-        neurons, synpases = link(pre_neron, post_neuron, mode, layer_sizes)
+        neurons, synpases = link(synpase_type, pre_neron, post_neuron, mode, layer_sizes)
         if self.activation:
             for i in range(len(neurons)):
                 if not neurons[i].activation:
                     neurons[i].activation = self.activation
+        if self.leak:
+            for i in range(len(neurons)):
                 if not neurons[i].leak:
                     neurons[i].activation = leak
         self.neurons.extend(neurons)

@@ -9,9 +9,15 @@
 
 2. 每次MR，在最前面插入相关的release_notes，一般把修正版号+1
 ```
-## RElease 0.0.4 - 2020/08/04
+
+## TODO
+* 建设基于时间的predicitive coding
+
+## Release 0.0.5 - 2020/0/08
+* 增加基于bp的error传播机制，增加基于局部梯度计算的error生成机制
+
+## Release 0.0.4 - 2020/08/04
 * 增加spikingNeuron
-* TODO: 增加训练方法，SG梯度
 
 ## Release 0.0.3 - 2020/08/02
 * 增加了env模块，包括MergeEnv，基于传统数据(监督与无监督)的Env等
