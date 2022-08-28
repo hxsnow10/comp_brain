@@ -45,12 +45,14 @@ import sys
 
 class Neurons(object):
 
-    def __init__(self, name, shape=None, init_satets=None, 
+    def __init__(self, name, size = None, shape=None, init_satets=0, 
                  activation = None,
                  leak_init = 0.1, 
                  self_dynamics = None,
+                 rnn_synpase_type = None,
                  visiable = False,
                  error = False,
+                 bp2states_ratio=0,
                  extend_vars = []
                 )
         """
@@ -68,6 +70,7 @@ class Neurons(object):
         visiable: only visiable neurons could be set manualy
         error: with error node
         extend_vars: more neuron vars
+        TODO: add neuron -error dynamics
         """
         self.shape = shape
         self.name = name
@@ -82,9 +85,19 @@ class Neurons(object):
         self.out_states = self.activation(tf.Variable(init_states, name=name))
         self.error = tf.zeros_like(self.states) 
         self.all_states = [ self.states, self.error]
+        self.bp2states_ratio = bp2states_ratio
+        if rnn_synpase_type!=None:
+            self.inter_rnn_synpase = synpase_type([self, self])
         self.init_more()
+        self.init_states()
 
     def init_more(self):
+        pass
+
+    def init_states(self):
+        # 初始状态是否作为学习对象？
+        # TODO:set to elementwise
+        self.states = self.init_states
         pass
 
     def get_val(self):
@@ -114,15 +127,22 @@ class Neurons(object):
             self.sum_states_implacts = self.sum_states_implacts + impact
         return None
 
+    def update_states_by_error(self):
+        return -self.bp2states_ratio*self.error
+
     def forward(self):
         """
         得先把所有神经元的下个状态算出来，保证仿真不产生时间不合法的依赖
         """
+        self.inter_rnn_synpase.neuron_dynamic()
+
         self.states = (1-self.leak)*self.states+self.sum_states_implacts
+        self.states = self.states + self.update_states_by_error()
         self.out_states = self.activation(self.states)
         self.sum_states_implacts = 0
 
         self.error = (1-self.error_leak)*self.error+self.sum_error_implacts
+        # TODO: add tbptt error
         self.out_error = self.error_activation(self.states)
         self.sum_error_implacts = 0
 
@@ -131,9 +151,16 @@ class ForwardNeurons(Neurons)
     def init_more(self):
         self.leak_init = 1
 
-# TODO： predictive coding怎么整？
-# 需要当前状态与历史预测，需要一个预测网络。
+# temporal predictive coding
+# 本身就是一个复杂神经群
+# 从一次输入的最优解释，拓展到对历史、当前、未来的最优解释、预测。
+# * 一个rnn预测未来，未来是多步伐的
+# * 一个rnn保存历史
+# * 直接保存历史
+# 附近的神经元群对此有连接
+
 # [neuron, neighbors]->[predict_next] predict_next->last_predict, neuron,last_predict->targetNeuron
+
 
 class SpikingNeuron(Neuron):
 
@@ -169,8 +196,8 @@ class Synpase(object):
     def __init__(self,
                  name,
                  neurons,
-                 synpase_shapes,
-                 synpase_inits,
+                 synpase_shapes = None,
+                 synpase_inits = None,
                  synpase_dynamic_fn_past_order = 0):
         """Multi-Head Synapase
 
@@ -196,7 +223,11 @@ class Synpase(object):
         self.learnin_rate = tf.Variable(learning_rate)
         #self.neuron_dynamic()
         #self.synpase_dynamic()
-    
+        self.init_states()
+
+    def init_states(self):
+        pass
+
     def neuron_states_dynamic_imp(self):
         return 0
     
@@ -229,6 +260,7 @@ class Synpase(object):
 
 class TargetBPSynpase(Synpase):
     """考虑一种真实bp形成的突触，它的动力学是1)fn(neurons) update  2）计算其中一个neuron对其他neuron的梯度，反馈error
+    TODO: 如果使用内置的bp，要在target的计算过程neuron_dynamic_imp加了gradient_tape； bptt类似，在恰当的地方加上，避免tape爆炸
     """
 
     def set_traget_neuron_index(self, idx):
@@ -241,14 +273,27 @@ class TargetBPSynpase(Synpase):
             rval.append(ne_impalct)
         return rval
 
+# TODO: 需要考虑输入y_true缺失与为0的情况，输入 error = 0, 输入 为0,自然计算
+# 本质上不是y_true的问题，而是任意信道区分0与空的问题
+# 物理上不存在在这个问题，0就是空。所以我们应该尽量避免0的编码，比如在word2vec中。
+# 方法一：假设全为0即为空。
+# 方法二：输入额外的信号。
+# 这里我们选择方法一。
+
 class MseSynpase(TargetBPSynpase):
     
     mse = tf.keras.losses.MeanSquaredError()
     target_ne_idx = 2
-    
+    def init_states(self):
+        self.max_target = 0
+
     def neuron_states_dynamic_imp(self):
+        y_true_on = tf.sum(self.neurons[1].states)>0.01
         y,y_true = MseSynpase.neurons[0].states, self.neurons[1].states
-        target = self.mse(y, y_true)
+        target = 0
+        if y_true_on:
+            target = self.mse(y, y_true)
+            self.max_target = max(self.max_target, target)
         return [0,0,target]
 
 class HebbianSynpase(Synpase):
@@ -295,9 +340,8 @@ class BiLinearSynpase(Synpase):
     """Bi Linear Synpase.
 
     """
-    def __init__(self, name, pre_neuron, post_neuron, 
+    def __init__(self, name, neurons, 
                  go_factor=1, back_factor=1):
-        neurons = [pre_neuron, post_neuron]
         self.weights = tf.Variable(
              [self.neurons_1.shape[1], self.neurons_2.shape[1]], name=name)
         super(BiLinearSynpase, self).__init__(name, neurons, shape, init,
@@ -311,8 +355,8 @@ class BiLinearSynpase(Synpase):
         return [implact_1, implact_2]
 
 class LinearSynpase(Synpase):
-    def __init__(self, name, pre_neuron, post_neuron, error=True)
-        super(LinearSynpase, self).__init__(name, name, pre_neuron, post_neuron,
+    def __init__(self, name, neurons, error=True)
+        super(LinearSynpase, self).__init__(name, name, neurons,
                                             go_factor=1, back_factor=0)
     def synpase_dynamic_imp(self):
         states1, states2 = self.neurons[0].states, self.neurons[1].states
@@ -374,7 +418,9 @@ class network():
     """ a class to manage neurons, synpases, forward, backword
     """
 
-    def __init__(self, neurons=[], synpases=[], activation = None, leak = 0.1, error = None, synpase_type=None):
+    def __init__(self, neurons=[], synpases=[], activation = None, leak = 0.1, error = None, 
+                 synpase_type=None, 
+                 input_idxs=[]):
         self.neuron_names = []
         self.neurons = neurons
         self.synpases = synpases
@@ -382,6 +428,7 @@ class network():
         self.leak = leak # default activation
         self.error = None
         self.synpase_tye = synpase_type
+        self.input_idxs = input_idxs
 
     def link(self, pre_neron, post_neuron, synpase_type = None, mode = "mlp", layer_sizes = []):
         if not synpase_type:
@@ -407,16 +454,49 @@ class network():
             synpase.neuron_dynamic(control_lr)
             # TODO collect all neurons and finaly update states to next
         for neuron in self.neurons:
-            self.neuron.forwad(mode)
+            neuron.forwad(mode)
     
-    def clamp_input(self, inputs, input_inxs):
-        for inx, inp in zip(input_inxs, inputs):
+    def clamp_inputs(self, inputs):
+        for inx, inp in zip(self.input_idxs, inputs):
             self.neurons[inx].clamp(inp)
 
     def update_synpase(self, control_lr):
-        for synpase in self.synpase:
+        for synpase in self.synpases:
             synpase.sypase_dynamic( control_lr )
+        for neuron in self.neurons:
+            if neuron.inter_rnn_synpase:
+                neuron.inter_rnn_synpase.sypase_dynamic( control_lr )
 
+    def apply(self, inputs, time_step_num, neuron_on = True, synpase_on = True):
+        for t in range(time_step_num):
+            self.clamp_inputs(inputs)
+            if neuron_on:
+                self.update_neuron()
+            if synpase_on:
+                self.update_synpase()
+
+    def init_states(self):
+        for synpase in self.synpases:
+            synpase.init_states()
+        for neuron in self.neurons:
+            neuron.init_states()
+
+    def get_val(self, name):
+        if name not in self.neuron_name2idx:
+            return None
+        idx = self.neuron_name2idx[name]
+        return self.neurons[idx].get_val()
+
+    def add_synpase(self, synpases):
+        if type(synpases)!=type([1,2,3]):
+            synpases = [synpases]
+        for synpase in synpases:
+            if synpase.name not in self.synpase_names:
+                self.synpases.append(synpase)
+            for neuron in synpase.neurons:
+                if neuron.name not in self.neuron_names:
+                    self.neurons.append(synpase)
+        
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("-i", "--config_path", default="./config.py")

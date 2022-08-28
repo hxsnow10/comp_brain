@@ -11,9 +11,15 @@
 ```
 
 ## TODO
-* 建设基于时间的predicitive coding
+* BPTT怎么自己实现; 怎么用框架内置实现
+* 完成bp、bptt、wm实验
 
-## Release 0.0.5 - 2020/0/08
+
+## Release 0.0.6 - 2020/080/29
+* 增加了bp实验的代码，优化了rnn实验的代码
+* 优化了各种bp的机制(bp-d, bp-da, pc)的代码
+
+## Release 0.0.5 - 2020/08/08
 * 增加基于bp的error传播机制，增加基于局部梯度计算的error生成机制
 
 ## Release 0.0.4 - 2020/08/04

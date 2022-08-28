@@ -34,49 +34,60 @@ def get_time_sequence(source_tensor, time_split_index):
     target = [new_sample[i] for i in range(sample.shape[0])]
     return target
 
-class SeqSelfSupervisedEnv(object):
+class DataBasedEnv(gym.Env):
 
-    def __init__(self,
-                 ori_data,
-                 input_name,
-                 input_time_dim):
-        self.ori_data = ori_data
-        self.input_name = input_name
-        self.input_time_dim = input_time_dim
+    def __init__(self):
+        pass
 
     def reset(self):
-        self.ori_sample = self.ori_data.next()
-        self.env_buffer = get_time_seqence(self.ori_sample[self.input_name], self.input_time_dim)
-        self.input_t = len(env_buffer)
-        self.t = 0
+        # process self.env_buffer here
+        pass
+
+    def get_reward(self, action):
+        return 0
     
     def step(self, action):
+        """这里action与输入同质, 语言的输入与输出。
+        """
         obs, reward, done, info = None, 0, False, None
-        if self.t>self.max_output_t+self.input_t:
+        if self.t>len(self.env_buffer):
             done = True
         else:
-            obs = self.env_input[self.t]
-            reward = self.loss(obs, action)
-            self.t+=1
+            obs = self.env_buffer[self.t]
+            reward = self.get_reward(action)
         return obs, reward, done, info
 
-# 基于符号序列的数据的环境
-## 通用的设计模式最好是与传统的使用基本的组件，而不是经过转化
-## 但目前最方便的方式还是基于转化
-class SeqSupervisedEnv(object):
+class SimpleSupervisedEnv(DataBasedEnv):
+    """简单监督数据{x,y}的env形式
+    1. 分为2次数据，先给x缺失y，让agent自己预测，然后给x,y 希望构建形成error去学习 1) x 2)x,y
+    2. x,y 一次性给x,y其实也是可以,就是收敛路径不同，结果是一致的。
+     2.* 一次性给x,y 在某些error影响x（即y_true影响x）算法中，最后收敛的error会有gap
+    """
+    def __init__(self, ori_data)
+        self.ori_data = ori_data
 
+    def reset(self):
+        self.env_buffer = [next(self.ori_data)]
+        self.t = 0
+
+class SeqEnv(object):
+    """监督数据{x,y}涉及到Seq展开的env形态
+    x,y 都可能涉及展开。
+    """
     def __init__(self,
                  ori_data,
                  input_name,
-                 output_names,
-                 input_time_dim,
-                 output_questions,
+                 time_process_def,
+                 output_question,
                  output_teacher_reward,
-                 max_output_t,
-                 line2tensor
+                 max_output_t
                 ):
         """
-        In: input_tran
+        ori_data: [{name:val}...]
+        time_process_def: [ {name1:[time_dim]}, {},... ]
+        输出为[  f[ori[name1]], ... ], f 为对原env的time_dim展开
+        并且涉及到某些对象的后移。
+        这里约束f的形式，更复杂的f通过重载。
         Out: actions by agent
         Reward: reward by teacher(Out)
         """
@@ -91,30 +102,30 @@ class SeqSupervisedEnv(object):
 
     def reset(self):
         self.ori_sample = self.ori_data.next()
-        self.env_input = []
-        self.env_buffer = get_time_seqence(self.ori_sample[self.input_name], self.input_time_dim)
+        self.env_buffer = []
+        for stage,stage_def in enumerate(self.time_process_def):
+            stage_buf = []
+            for name,name_process in stage_def:
+                if name_process[0]>=0:
+                    stage_buf += get_time_seqence(self.ori_sample[name], name_process[0])
+                else:
+                    stage_buf += self.ori_sample[name]
+            stage_len = max([len(x) for x in stage_buf])
+            stage_buf = [ [x[i] for x in stage_buf] for i in range(stage_len)]
+            self.env_buffer+=stage_buf
         self.env_buffer+=self.task_questions[0]
         self.input_t = len(env_buffer)
         self.t = 0
 
-    def step(self, action):
-        """这里action与输入同质, 语言的输入与输出。
-        """
-        obs, reward, done, info = None, 0, False, None
-        if self.t>self.max_output_t+self.input_t:
-            done = True
-        else:
-            obs = self.env_input[self.t]
-            if self.t>self.input_t:
-                self.history_actions+=action
-                reward = self.get_reward()
-            self.t+=1
-        return obs, reward, done, info
-
     def get_reward(self):
+        # TODO
         action_tensor = line2tensor(self.history_actions)
         beliefe = 
         compare action_tensor and true_tensor
+
+# 基于符号序列的数据的环境
+## 通用的设计模式最好是与传统的使用基本的组件，而不是经过转化
+## 但目前最方便的方式还是基于转化
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()

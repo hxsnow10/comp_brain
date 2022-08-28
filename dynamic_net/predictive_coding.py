@@ -34,7 +34,49 @@ import argparse
 import os
 import sys
 
-def mlp_predicitive(
+
+# BP 类型的连接
+BPSynpase = type("PSynpase",(LinearSynpase, ErrorBPSynpase))
+
+# 标准的PC连接
+class PcSynpase(Synpase):
+    """Standard Predicitive Coding.
+    """
+    def neuron_states_dynamic_imp(self):
+        error1, error2 = self.neurons[0].states, self.neurons[1].states
+        implact1 =  -error1 + tf.matmul(error2, self.weights, transpose_b=True)
+        return [implact1,0] 
+
+    def neuron_error_dynamic_imp(self):
+        states1, states2 = self.neurons[0].states, self.neurons[1].states
+        error = staest2 - self.go_factor * tf.matmul(states1, self.weights)
+        return [0, error]
+
+# TODO : cnn. rnn?
+# cnn: 可以复用机器学习的函数。 x_t = (1-\alpha)*x_{t-1}+F(z)
+
+MseTsynpase = type("TSynpase",(TargetBPSynpase, MseSynpase))
+def general_mlp(
+        x,y,
+        synpase_type,
+        hidden_layer_sizes = [],
+        stop_th=0.1,
+        neuron_inter_synpase_type = None,
+        states2error = 0
+    ):
+    """通用的MLP"""
+    synpases = []
+    h_layer_num = len(hidden_layer_sizes)
+    x_neurons = [x]
+    for l in range(h_layer_num):
+        x_neurons.append(Neurons(size = hidden_layer_sizes[l], inter_rnn_synpase_type = neuron_inter_synpase_type, error=True))
+        synpase = synpase_type(name = "synpase_"+str(l),[x_neurons[l], x_neurons[l+1]], states2error = states2error)
+        synpases.append(synpase)
+    synpase = synpase_type(name = "synpase_"+str(l),[x_neurons[-1], y], states2error = states2error)
+    synpases.append(synpase)
+    return synpases
+
+def mlp_old_predicitive(
     # 标准的predicitive-coding mlp
     # 通过error来进行上下层的沟通，具体参考Backpropagation and the Brain
         layer_num,
@@ -59,33 +101,6 @@ def mlp_predicitive(
         synpase.append(synpase)
     network = Network(x_neurons, synpases)
 
-def mlp_bp_predicitive(
-        layer_num,
-        neurons,
-        synpases,
-        input_inxs,
-        output_inxs,
-        stop_th=0.1):
-    """ 一种与bp更相似的网络。每个神经元包含(states, error)，前向不变，后向每个神经元配个error按bp方式进行传播。
-    只有当target真正触发了，非0-error才会传递到整个网络。
-    注意到这里一定得是前向网络，并且输入保持一段时间的稳定才行。"""
-    x_neurons = []
-    x_neurons.append(Neusons(error=True))
-    synpases = []
-    PSynpase = type("PSynpase",(LinearSynpase, ErrorBPSynpase))
-    for l in range(1, layer_num):
-        x_neurons.append(Neurons(error=True))
-        synpase = PSynpase("synpase"+str(l),x_neurons[l-1], x_neurons[l])
-        synpase.append(synpase)
-    target = ForwardNeurons(error=True)
-    y_true = Neurons(error=True)
-    # error项是target对神经元的微分。target可以是分布式多个来源的。
-    # 我们只要描述目标神经元与目标的关系,然后采取TargetBPSynpase，把target-states转化为error
-    Tsynpase = type("TSynpase",(TargetBPSynpase, MseSynpase))
-    synpase = TSynpase("tsynpase", [x_neurons[layer_num-1], y_true, target])
-    synpase.append(synpase)
-    x_neurons+=[y_true, target]
-    network = Network(x_neurons, synpases)
 
 # 反馈神经网络存在困难，需要特殊处理：
 # * 或者使用短期记忆保存历史状态，然后使用BP
@@ -95,7 +110,6 @@ def mlp_bp_predicitive(
 # local_predicitve_coding  局部可以产生自我预测的error
 # 可以是空间或者时间的
 # 时间涉及与到预测时间窗口的问题。TODO
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
