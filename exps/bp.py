@@ -21,7 +21,6 @@ import sys
 
 import argparse
 
-import tensorflow as tf
 import tensorflow_datasets as tfds
 
 def get_mnist_agent(model_name):
@@ -29,7 +28,7 @@ def get_mnist_agent(model_name):
     target = ForwardNeurons(error=True)
     y = Neurons(error=True)
     y_true = Neurons(error=True)
-    network = Network([x, target, y, y_true], activation = tf.relu)
+    network = Network([x, target, y, y_true], activation = "relu")
     hidden_layer_sizes = [int(x.size/2), int(x.size/4)]
     if model_name == "Bp-d":
         synpase_type = BPSynpase

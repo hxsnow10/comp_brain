@@ -34,6 +34,7 @@ import argparse
 import os
 import sys
 
+from ..kernel.kernel import *
 
 # BP 类型的连接
 BPSynpase = type("PSynpase",(LinearSynpase, ErrorBPSynpase))
@@ -44,12 +45,12 @@ class PcSynpase(Synpase):
     """
     def neuron_states_dynamic_imp(self):
         error1, error2 = self.neurons[0].states, self.neurons[1].states
-        implact1 =  -error1 + tf.matmul(error2, self.weights, transpose_b=True)
+        implact1 =  -error1 + get_matmul(error2, self.weights, transpose_b=True)
         return [implact1,0] 
 
     def neuron_error_dynamic_imp(self):
         states1, states2 = self.neurons[0].states, self.neurons[1].states
-        error = staest2 - self.go_factor * tf.matmul(states1, self.weights)
+        error = staest2 - self.go_factor * get_matmul(states1, self.weights)
         return [0, error]
 
 # TODO : cnn. rnn?
@@ -88,7 +89,7 @@ def mlp_old_predicitive(
     def error_neuron_fn(states):
         states1, states2 = states
         error = states2 - weights*states1
-        update1 = tf.transpose(weights)*error
+        update1 = get_transpose(weights)*error
         update2 = -error
         return [update1, update2]
     x_neurons = []
