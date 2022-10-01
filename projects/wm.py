@@ -75,7 +75,7 @@ def get_mrnn_agent():
     target = ForwardNeurons(error=True)
     y = Neurons(size = 1, error=True) # char output
     y_true = Neurons(error=True)
-    network = Network([x, target, y, y_true], activation = tf.relu)
+    network = Network([x, target, y, y_true], activation = "relu")
     hidden_layer_sizes = [int(x.size/2), int(x.size/4)]
     synpase_type = BPSynpase
     rnn_synpase_type = BPSynpase

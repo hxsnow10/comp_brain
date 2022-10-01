@@ -29,63 +29,6 @@ import argparse
 
 from ..dynamic_net.base import *
 
-class WorkMode(Enum):
-    Normal = 1
-    Predict = 2
-    Train = 3
-    AntiTrain = 4
-
-class Agent(object):
-    """agent with preception and action maxmizing some target.
-    here we discrete time as default.
-    """
-    def __init__(self, network= None):
-        self.network = network
-        self.build_network()
-    
-    def work_step(self, env_t, neuron_on = True, synpase_on = True):
-        """
-        agent work
-            env_t:{name1:tensor1}
-            mode: phase control signal
-        """
-        self.network.apply(inputs, time_step_num, neuron_on, synpase_on)
-        action = self.network.get_outputs()
-        return action
-
-    def build_network(self):
-        """build a self.network obj  has :
-            * neuron_update: forward phase, return action
-            * synpase_update: learning phase
-        """
-        pass
-
-    def work(self, env, env_seed, neuron_on = True, synpase_on = True, max_step=1000):
-        """in faced of env, return action with side effect of self-change.
-        """
-        observation, info = env.reset(seed=env_seed, return_info=True)
-        for i in range(max_step):
-            action = agent.work_step(env_step, neuron_on , synpase_on )
-            # 确保向量action可以被env理解
-            observation, reward, done, info = env.step(action)
-            if done:
-                break
-
-    def get_val(self, name):
-        return self.network.get_val(name)
-
-def agent_work(agent, train_env, max_step, neuron_on, synpase_on):
-    for step in range(max_step):
-        agent.init()
-        agent.work(train_env, neuron_on, synpase_on)
-        # 获得收敛时刻的target
-        # 为了防止一些自我修正的算法，使用最大值是不是更好
-        target+=agent.get_val("target")
-        target_num+=1
-        if target_num%10000==1:
-            print(target)
-
-
 class HumanBrainAgent(Agent):
     """基于对大脑智能仿真的智能体，关注内部模块
     核心概念：动力学；目标系统；决策规划；短期记忆；注意；学习；图像；自然语言；
@@ -99,7 +42,7 @@ class HumanBrainAgent(Agent):
 
     def build_network():
         synpase_type = type("BaseSynpase", (LinearSynpase, ErrorBPSynpase))
-        network = Network(activation = tf.relu, leak = 0.1, error = True, synpase_type = synpase_type)
+        network = Network(activation = "relu", leak = 0.1, error = True, synpase_type = synpase_type)
 
         # reward
         target = Neurons(1)
@@ -134,9 +77,9 @@ class HumanBrainAgent(Agent):
         networki.link(vision_state, lang_state, "mlp:3", layer_sizes = [])
         networki.link(lang_state, vision_state, "mlp:3", layer_sizes = [])
 
-        # 无历史的网络有2种形式：1）直接使用tf的算子 2）把neuron的leak设置为1
+        # 无历史的网络有2种形式：1）直接使用深度框架算子 2）把neuron的leak设置为1
         input_vision = Neurons(1000, leak_init=1)
-        model =  tf.layers.cnn()
+        model =  cnn()
         def CNN(states, weights):
             return model(states)
         network.link(input_vision, vision_state, CNN)
@@ -144,7 +87,7 @@ class HumanBrainAgent(Agent):
         
         input_phone = Neurons(1000, leak_init=1)
         input_char = Neurons(1000, leak_init=1)
-        model =  tf.layers.rnn()
+        model =  rnn()
         def RNN(states, weights):
             return model(states)
         network.link(input_phone, lang_state, RNN)

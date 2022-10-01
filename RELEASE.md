@@ -11,11 +11,14 @@
 ```
 
 ## TODO
+* 实现local meta-learning synpase
 * BPTT怎么自己实现; 怎么用框架内置实现
 * 完成bp、bptt、wm实验
 
+## Release 0.0.7 - 2020/10/01
+* 支持了pytorch kernel
 
-## Release 0.0.6 - 2020/080/29
+## Release 0.0.6 - 2020/08/29
 * 增加了bp实验的代码，优化了rnn实验的代码
 * 优化了各种bp的机制(bp-d, bp-da, pc)的代码
 
