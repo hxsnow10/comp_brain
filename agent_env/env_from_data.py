@@ -26,6 +26,7 @@ import os
 import sys
 
 import argparse
+import gym
 
 def get_time_sequence(source_tensor, time_split_index):
     tr = [time_split_index] + range(source_tensor.ndim)
@@ -39,9 +40,10 @@ class DataBasedEnv(gym.Env):
     def __init__(self):
         pass
 
-    def reset(self):
-        # process self.env_buffer here
-        pass
+    def reset(self, seed = None, return_info = True):
+        self.reset_buffer()
+        obs, reward, done, info = self.step(None)
+        return obs, info
 
     def get_reward(self, action):
         return 0
@@ -57,16 +59,26 @@ class DataBasedEnv(gym.Env):
             reward = self.get_reward(action)
         return obs, reward, done, info
 
+    def __iter__(self):
+        """内建遍历接口"""
+        while True:
+            done = False
+            obs, info = self.reset()
+            yield obs
+            while not done:
+                obs, reward, done, info = self.step(None)
+                yield obs
+
 class SimpleSupervisedEnv(DataBasedEnv):
     """简单监督数据{x,y}的env形式
     1. 分为2次数据，先给x缺失y，让agent自己预测，然后给x,y 希望构建形成error去学习 1) x 2)x,y
     2. x,y 一次性给x,y其实也是可以,就是收敛路径不同，结果是一致的。
      2.* 一次性给x,y 在某些error影响x（即y_true影响x）算法中，最后收敛的error会有gap
     """
-    def __init__(self, ori_data)
+    def __init__(self, ori_data):
         self.ori_data = ori_data
 
-    def reset(self):
+    def reset_buffer(self):
         self.env_buffer = [next(self.ori_data)]
         self.t = 0
 
@@ -100,7 +112,7 @@ class SeqEnv(object):
         self.output_teacher_reward = output_teacher_reward
         self.max_output_t = max_output_t
 
-    def reset(self):
+    def reset_buffer(self):
         self.ori_sample = self.ori_data.next()
         self.env_buffer = []
         for stage,stage_def in enumerate(self.time_process_def):
@@ -120,8 +132,8 @@ class SeqEnv(object):
     def get_reward(self):
         # TODO
         action_tensor = line2tensor(self.history_actions)
-        beliefe = 
-        compare action_tensor and true_tensor
+        beliefe = None 
+        # compare action_tensor and true_tensor
 
 # 基于符号序列的数据的环境
 ## 通用的设计模式最好是与传统的使用基本的组件，而不是经过转化
