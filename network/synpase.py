@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+!/usr/bin/env python
 # -*- encoding=utf8
 #
 #   Filename:       synpase
@@ -283,18 +283,40 @@ class LinearSynpase(Synpase):
         impact_2 = get_matmul(states1, self.weights)
         return [0, impact_2]
 
-class MetaLearnLinearSynpase(LinearSynpase):
+class MLPMetaSynpase(Synpase):
+
+    def __init__(self, meta_synpase_type = None, mlp_srags):
+        # 注意到这里weights变成的neurons，与其他对象形成网络！
+        # 方法是共享变量生成一个新的neuron（这里使用）
+        # 即这时候，synpase一方面weights变成了具有动力学的neuron
+        # 另一方面weights的更新动力学形成了网络
+        self.meta_synpase_type = meta_synpase_type
+        self.w_neuron = Neurons(states_ref = self.weights, leaky=1)
+        # 不设置leaky，就是把历史存在内部，设置leaky相当于引入预设
+        input = [neurons.states. w_neuron, neurons.error]
+        self.delta_w = Neurons(w.states())
+        self.delta_error = Neurons()
+        # 实际上是多层rnn
+        # 最好把这里mlp计算延时设置为0
+        # 显式地考虑对error变化的建模
+        self.meta_synpase = general_mlp(input, [delta_w,error_implact], **mlp_args)
+        # 这里delta_w与梯度的关系也可以是预设的，而把元学习约束到梯度传播上 TODO
+
+    def synpase_dynamic_imp(self):
+        self.meta_synpase.neuron_dynamic()
+        # 何时运行self.synpase.synpase_dynamic()呢
+        # 这里meta_synpase作为本synpase的子系统，需要本synpase来触发子synpase的动力学。
+        # 另一种方案是把子synpase暴露到外边，异步执行，这会导致延时，这里使用过程式的形式
+        self.meta_synpase.synpase_dynamic()
+        # 这里依旧需要外层synpase传导梯度支持元网络的BP
+        
+        return self.delta_w.states
 
     def neuron_error_dynamic_imp(self):
-        error1, error2 = self.neurons[0].error, self.neurons[1].error
-        impact_2 = 0
-        if self.error:
-            # TODO: implement this rnn
-            # TODO: how to meta local learning
-            impact_1 = rnn(h, error2, self.weights, states)
-        else:
-            impact_1 = 0
-        return [impact_1, impact_2]
+        # do error implact
+        self.meta_synpase.neuron_dynamic()
+        # TODO 与上边只计算一次
+        return self.delta_error.state
 
 class TBPTTSynpase(Synapse):
 
