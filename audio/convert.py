@@ -9,12 +9,13 @@
 
 description
 """
+import sys
 from os import path
 from pydub import AudioSegment
 
 # files                                                                         
-src = "transcript.mp3"
-dst = "test.wav"
+src = sys.argv[1]
+dst = sys.argv[2]
 
 # convert wav to mp3                                                            
 sound = AudioSegment.from_mp3(src)
