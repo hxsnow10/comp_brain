@@ -62,6 +62,7 @@ class Synpase(object):
         # Lr 一般是这常数，如果是一个与weights一样大小的tensor，可以控制到每个突触的粒度
         self.init_more()
         self.allow_weights_update = True
+        self.sub_synpases = []
         print("new created", self.__str__())
     
     def __str__(self):
@@ -135,6 +136,9 @@ class Synpase(object):
         print("weights", self.weights.shape)
         print("impacts", synpase_impacts.shape)
         self.weights+=synpase_impacts*self.learning_rate
+        # 元学习中子突触学习
+        for synpase for self.sub_synpases:
+            synpase.synpase_dynamic()
 
 class TargetBPSynpase(Synpase):
     """考虑一种真实bp形成的突触，它的动力学是1)fn(neurons) update  2）计算其中一个neuron对其他neuron的梯度，反馈error
@@ -283,49 +287,77 @@ class LinearSynpase(Synpase):
         impact_2 = get_matmul(states1, self.weights)
         return [0, impact_2]
 
-class MLPMetaSynpase(Synpase):
+class MLPMetaWDynamicSynpase(Synpase):
+    """ meta for synpase update, 不显式使用error， meta 学习使用BP
+    必须要包含 元网络构造、元学习方法
+    本synpase同时包含2种突触动力学，元动力学是为了元学习，一般突触动力学是为了表达近似算法。
+    """
 
-    def __init__(self, meta_synpase_type = None, mlp_srags):
-        # 注意到这里weights变成的neurons，与其他对象形成网络！
-        # 方法是共享变量生成一个新的neuron（这里使用）
-        # 即这时候，synpase一方面weights变成了具有动力学的neuron
-        # 另一方面weights的更新动力学形成了网络
+    def set_meta_learning(self, meta_synpase_type = None, mlp_srags):
         self.meta_synpase_type = meta_synpase_type
+        # 这里不仅要形成网络，还要考虑外部网络与元网络的学习信号的传递
+        # 我们可以使用传统的非生物可行的BP算法，在BP里使用了error
+        # 但在代码中不显式.
+        # 注意到：这里的学习过程 是学习对象， 目标是更快更好地学习。
         self.w_neuron = Neurons(states_ref = self.weights, leaky=1)
         # 不设置leaky，就是把历史存在内部，设置leaky相当于引入预设
-        input = [neurons.states. w_neuron, neurons.error]
+        # 注意到这里weights、delta_weights变成了neurons，形成了网络！
         self.delta_w = Neurons(w.states())
+        input_n = [self.neurons, self.w_neuron]
         self.delta_error = Neurons()
-        # 实际上是多层rnn
-        # 最好把这里mlp计算延时设置为0
-        # 显式地考虑对error变化的建模
-        self.meta_synpase = general_mlp(input, [delta_w,error_implact], **mlp_args)
+        self.meta_synpase = general_mlp(self.meta_synpase_type, input_n, [delta_w], **mlp_args)
+        self.sub_synpases.append(meta_synpase)
         # 这里delta_w与梯度的关系也可以是预设的，而把元学习约束到梯度传播上 TODO
 
     def synpase_dynamic_imp(self):
         self.meta_synpase.neuron_dynamic()
-        # 何时运行self.synpase.synpase_dynamic()呢
-        # 这里meta_synpase作为本synpase的子系统，需要本synpase来触发子synpase的动力学。
-        # 另一种方案是把子synpase暴露到外边，异步执行，这会导致延时，这里使用过程式的形式
-        self.meta_synpase.synpase_dynamic()
-        # 这里依旧需要外层synpase传导梯度支持元网络的BP
-        
+        self.meta_synpase_type.synpase_dynamic_imp()
+        # TODO add params
         return self.delta_w.states
 
+class MLPMetaErrorSynpase(ErrorBPSynpase):
+    """ meta for synpase update, 显式使用error, meta 使用 neuron 的近似方法
+    另一种方法是引入显式error，1）F:input_n->error_implact, dT/dx = error_x 2) error_x->delta_w(error_w)
+    1通过metalearning实现，2可以通过某种预设的形态实现最大反向梯度  delta_w = alpha * dx/dw * error_x
+    TODO: 这里还有个问题，error_implact的error信号怎么来，我们假设F具有近似的BP算法
+    error_implact改变了error继而产生delta_w改变w
+    i) 如果我们知道w变化后的T的变化，至少可以打压T变差的过程，加强T变好的过程
+    ii) 是否可以把一次改变变得最好(one step best)作为优化目标 Equally Min T2, 所以我们其实在问dT2/d{delta_w}
+    iii) error_implact的error由delta_w反向传递获得。dT2/d{delta_w} = dT2/dw2*dw2/d{delta_w} = dT2/dw2
+    
+    假如我们通过元网络得到了dT2/dw2 = sum(dT2/dy * dy/dw2)，就可以用这个信号来学习元网络。
+    注意到dT/dw 一定是BPTT的总和，这本身就是我们的学习目标。。  我这里似乎混乱了。。
+    dT/d{error_implact} = dT/d{error_x} = 1/(alpha * dx/dw)*dT2/d{deta_w} = 1/(alpha * dx/dw) * dT/dw  
+     =  1/(alpha * dx/dw) * dT/dx * dx/dw  = 1/alpha * dT/dx
+     感觉得再推导一次。。。
+    """
+    
+    def set_meta_learning(self, meta_synpase_type = None, mlp_args):
+        self.meta_synpase_type = meta_synpase_type
+        self.error_implact = Neurons(w.states())
+        input_n = [self.neurons, self.w_neuron, Neuons(self.neurons.error)]
+        self.meta_synpase = general_mlp(input_n, [error_implact], **mlp_args)
+        self.sub_synpases.append(meta_synpase)
+    
     def neuron_error_dynamic_imp(self):
-        # do error implact
         self.meta_synpase.neuron_dynamic()
-        # TODO 与上边只计算一次
-        return self.delta_error.state
+        # 关于error_implact的error怎么生成的问题
+        # self.error_implact.error += 1/alpha * error_y
+        return self.error_implact.states
 
 class TBPTTSynpase(Synapse):
+    "Truncted BPTT"
 
     def neuron_error_dynamic_imp(self):
+        # input_n = [self.neurons, self.w_neuron] 这里也可以引入error
         pass
 
 class FPTTSynpase(Synpase):
-
+    "Forward Prop"
     pass
+
+class ErrorPropSynpase(Synpase):
+    # TODO: implent e-prop
 
 # 使用type(Name, baseclasses)可以动态创建class
 # BP 类型的连接
