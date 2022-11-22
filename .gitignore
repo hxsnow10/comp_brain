@@ -1,5 +1,6 @@
 old
 *.wav
+*DS_STORE
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
