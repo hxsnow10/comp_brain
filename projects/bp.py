@@ -20,6 +20,14 @@ import os
 import sys
 
 import argparse
+import logging
+logging.getLogger().setLevel(logging.DEBUG)
+log_file = open("log.txt", 'w')
+logging.basicConfig(
+    level = logging.DEBUG,
+    stream = log_file,
+    # datefmt='%a, %d %b %Y %H:%M:%S',
+    format='%(levelname)s|%(asctime)s|%(filename)s,%(lineno)d|%(funcName)s|%(message)s')
 
 # import tensorflow_datasets as tfds
 from torchvision import datasets, transforms
@@ -28,14 +36,17 @@ from network import *
 from agent_env import *
 from utils import *
 
+BATCH_SIZE = 1
+
 def get_mnist_agent(model_name):
-    batch_size = 64
+    batch_size = BATCH_SIZE
     in_size = 28*28
-    x = Neurons(name = "x", states_init = np.full([batch_size, in_size],0), error=True)
+    x = ErrorNeurons(name = "x", states_init = np.full([batch_size, in_size],0), error=True)
     target = ForwardNeurons(name="target", states_init = np.full([batch_size, 1],0), error=True)
-    y = Neurons(name = "y", states_init = np.full([batch_size, 10],0), error=True, requires_grad = True)
+    y_log = ErrorNeurons(name = "y", states_init = np.full([batch_size, 10],0), error=True, requires_grad = True)
+    y = ErrorNeurons(name = "y", states_init = np.full([batch_size, 10],0), error=True, requires_grad = True)
     y_true = Neurons(name = "y_true", states_init = np.full([batch_size, 10],0), error=True)
-    network = Network([x, target, y, y_true], activation = "relu")
+    network = Network([x, target, y, y_true], activation = "relu", output_names = ["y"])
     hidden_layer_sizes = [int(in_size/2), int(in_size/4)]
     if model_name == "Bp-d":
         synpase_type = LinearBPSynpase
@@ -50,11 +61,13 @@ def get_mnist_agent(model_name):
         # 把clamp设计为一种输入影响的网络！
     elif model_name == "TP":
         pass # TODO
-    network.add_synpase(MseSynpase(name = "tsynpase", neurons = [y, y_true, target]))
-    network.add_synpase(general_mlp(x,y, synpase_type,hidden_layer_sizes = hidden_layer_sizes,  states2error = 0.1))
+    network.add_synpase(general_mlp(x,y_log, synpase_type,hidden_layer_sizes = hidden_layer_sizes,  states2error = 0))
+    network.add_synpase( (CompDefSynpase,BPSynpase)(name = "softmax", neurons = [y_log, y], comp_def = softmax))
+    network.add_synpase(MseSynpase(name = "msesynpase", neurons = [y, y_true, target]))
+    network.add_synpase(BPSynpase(name = "tsynpase", neurons = [y, target]))
+    network.report()
+    input("network build done")
     agent = Agent(network)
-    agent.network.check_neurons("222222")
-    print(agent)
     return agent
 
 def test_mnist(agent, test_env):
@@ -87,16 +100,16 @@ def get_pytorch_minist_data():
                                train = False)
 
     ds_train = torch.utils.data.DataLoader(dataset=ds_train,
-                                                batch_size = 64,
+                                               batch_size = BATCH_SIZE,
                                                 shuffle = True)
 
     ds_test = torch.utils.data.DataLoader(dataset=ds_test,
-                                               batch_size = 64,
+                                               batch_size = BATCH_SIZE,
                                                shuffle = True)
     
     def transform(d):
         x,y = d
-        x = torch.reshape(x,[64,-1]).type(torch.float32)
+        x = torch.reshape(x,[BATCH_SIZE,-1]).type(torch.float32)
         y = torch.nn.functional.one_hot(y,10).type(torch.float32)
         return x,y
     ds_train = PytorchData(ds_train, transform)
@@ -108,13 +121,14 @@ def main():
     ds_train, ds_test = get_pytorch_minist_data()
     train_env = SimpleSupervisedEnv(ds_train)
     test_env = SimpleSupervisedEnv(ds_test)
-    model_names = ["Bp-d"]
+    model_names = ["Bp-da"]
     for model_name in model_names:
         agent = get_mnist_agent(model_name)
-        agent.network.check_neurons("333333")
         for epoch in range(10):
-            agent_work(agent, train_env, ["x", "y_true"], max_step=10000, neuron_on=True, synpase_on=True)
-            agent_work(agent, test_env, ["x", "y_true"], max_step=10000, neuron_on=True, synpase_on=False)
+            agent.unfreeze_weights()
+            agent_work(agent, train_env, ["x", "y_true"], loop_num=10000)
+            agent.freeze_weights()
+            agent_work(agent, test_env, ["x", "y_true"], loop_num=10000)
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()

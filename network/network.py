@@ -59,6 +59,9 @@ import os
 import sys
 
 import argparse
+import logging
+sys.path.append("..")
+from util.log import log_info, log_debug
 
 class Network():
     """ a class to manage neurons, synpases, forward, backword
@@ -74,22 +77,36 @@ class Network():
         self.activation = activation # default activation
         self.leak = leak # default activation
         self.error = None
-        self.synpase_tye = synpase_type
+        self.synpase_type = synpase_type
         self.input_names = input_names
         self.output_names = output_names
+        self.freeze_weights = False
+
+    def report(self):
+        logging.info("network desc"+"-"*40)
+        logging.info("name2neurons = {}".format(self.name2neurons))
+        logging.info("name2synpases = {}".format(self.name2synpases))
+        logging.info("activation = {}".format(self.activation))
+        logging.info("synpase_type = {}".format(self.synpase_type))
+        logging.info("input_names = {}".format(self.input_names))
+        logging.info("output_names = {}".format(self.output_names))
+        for neuron in self.name2neurons.values():
+            logging.info((neuron.name, neuron.states.shape))
+        # TODO add synpase
+        logging.info("network desc"+"-"*40)
 
     def clamp_inputs(self, inputs, input_names):
         if not inputs:
             return
         for name, inp in zip(input_names, inputs):
             self.name2neurons[name].set_val(inp, clamped = True)
-            print("after clamp", self.name2neurons[name])
+            logging.info("after clamp {} = ".format(self.name2neurons[name]))
 
     def set_io_names(self, input_names, output_names):
         self.input_names = input_names
         self.output_names = output_names
 
-    def apply(self, inputs = None, input_names=None, output_names=None, time_step_num=1, neuron_on = True, synpase_on = True):
+    def apply(self, inputs = None, input_names=None, output_names=None, time_step_num=1):
         """根据输入运行，返回输出。
         Args
             inputs: list of input tensor to clamp
@@ -105,8 +122,11 @@ class Network():
                 synpase.inference_dynamic()
             for neuron in self.name2neurons.values():
                 neuron.dynamic()
-            for name,synpase in self.name2synpases.items():
-                synpase.learning_dynamic()
+            if not self.freeze_weights:
+                for name,synpase in self.name2synpases.items():
+                    logging.info("synpase {}->{} start learning".format(name, synpase))
+                    synpase.learning_dynamic()
+            self.check_neurons()
         return self.get_val(output_names)
 
     def init_states(self):
@@ -119,7 +139,12 @@ class Network():
 
     def get_val(self, name):
         # TODO consider list
+        logging.info("get neuron val, name={}".format(name))
+        logging.info("name2neurons ={}".format(self.name2neurons))
+        if type(name)==type([1,2,3]):
+            return [self.name2neurons[na].get_val() for na in name]
         return self.name2neurons[name].get_val()
+
 
     def add_synpase(self, synpases):
         if type(synpases)!=type([1,2,3]):
@@ -128,22 +153,24 @@ class Network():
             self.name2synpases[synpase.name] = synpase
             for neuron in synpase.neurons:
                 if neuron.name not in self.name2neurons:
-                    print("network add neuron", neuron.name)
+                    logging.info("network add neuron {}".format(neuron.name))
                     if self.activation and not neuron.activation:
                         neuron.activation = self.activation
                     if self.leak and not neuron.leak:
                         neuron.activation = leak
                     self.name2neurons[neuron.name] = neuron
-        print("after add synpase")
+        logging.info("after add synpase")
     
-    def report(self):
-        for neuron in self.name2neurons.values():
-            print(neuron.name, neuron.states.shape)
     
-    def check_neurons(self, process_name):
-        print("start {}!!!!!!!!!".format(process_name))
+    def check_neurons(self, process_name=""):
+        logging.info("check_neurons, process_name = {}".format(process_name))
         for neuron in self.name2neurons.values():
-            print(neuron)
+            logging.info("name = {}, states = {}".format(neuron, neuron.states))
+            logging.info("name = {}, error = {}".format(neuron, neuron.error))
+            print(neuron.error)
+            if neuron.error is not None:
+                print(neuron.error.sum())
+            # input('xxxxxxxxxx')
 
 if __name__=='__main__':
     from neuron import *

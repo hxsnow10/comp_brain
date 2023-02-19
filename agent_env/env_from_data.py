@@ -52,11 +52,12 @@ class DataBasedEnv(gym.Env):
         """这里action与输入同质, 语言的输入与输出。
         """
         obs, reward, done, info = None, 0, False, None
-        if self.t>len(self.env_buffer):
+        if self.t>=len(self.env_buffer):
             done = True
         else:
             obs = self.env_buffer[self.t]
             reward = self.get_reward(action)
+            self.t+=1
         return obs, reward, done, info
 
     def __iter__(self):

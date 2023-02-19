@@ -1,4 +1,4 @@
-!/usr/bin/env python
+#!/usr/bin/env python
 # -*- encoding=utf8
 #
 #   Filename:       synpase
@@ -21,41 +21,92 @@ import sys
 
 import argparse
 import numpy as np
+import logging
 
 from .neuron import Neurons
+from .synpase_base import Synpase
+from .synpase_inference import SparseSynpase
 
 sys.path.append("..")
 from op import *
+from util.log import log_info, log_debug
 import torch
 
 class TargetBPSynpase(Synpase):
-    """使用标准BP来求梯度,neuron.error = grad(target, neuron.states)
+    """使用标准BP来求局部梯度,neuron.error = grad(target, neuron.states)
+    可以不仅用在target，任意的局部算子u = f(v)，都可以使用BP计算v.error = BP_f(u.error) 
+    哪怕在BPTT中，框架中对任意局部算子进行求导以及梯度传播的功能还是需要的。
     """
-    def set_traget_neuron_index(self, idx):
-        self.target_ne_idx = idx
+    def inference_neuron_states_impact(self):
+        pass
 
     def inference_neuron_error_impact(self):
-        input("start error dynamic"+self.__str__())
-        print(sys._getframe().f_lineno, self.__str__())
+        logging.debug(sys._getframe().f_lineno, self.__str__())
         rval = []
-        target = self.neurons[self.target_ne_idx].states
+        target = self.neurons[1].states
         for ne in self.neurons:
-            print("name = {}, requires_grad = {}, shape = {}", ne.name, ne.states.requires_grad, ne.states.shape)
+            logging.debug("name = {}, requires_grad = {}, shape = {}".format(ne.name, ne.states.requires_grad, ne.states.shape))
             # ne.states.requires_grad = True
             if ne.states.requires_grad:
                 ne.states.retain_grad()
         sum_target = target.sum()
         try:
             sum_target.backward()
+            # TODO: 可能导致太长的回溯
         except:
             pass
         for ne in self.neurons:
             # make ne's require_grad = True before inference
-            grad = ne.states.grad
+            # 使用bp需要保证变量之间存在计算依赖关系。
+            # mse(y_t,y_true_t)->target_{t+1}
+            # grad(target_{t+1},y_t)
+            grad = ne.last_states.grad
             if grad is None: grad = 0
             rval.append(grad)
-        print("FUCK error of BP", rval)
+        logging.debug("FUCK error of BP, rval = {}".format(rval))
         return rval
+
+    def learning_synpase_impact(self):
+        # 没有参数
+        pass
+
+class MseSynpase(TargetBPSynpase):
+    """计算target的突触。3个神经元群的突触:x,y,mse目标
+    """
+   
+    target_ne_idx = 2
+    def init_more(self):
+        self.max_target = 0
+
+    def learning_dynamic(self):
+        """无参数，不需要自我学习"""
+        pass
+
+    def inference_neuron_states_impact(self):
+        # logging.debug("MSE ", sys._getframe().f_lineno, self.__str__())
+        for n in self.neurons:
+            logging.debug(n)
+        # 需要考虑输入y_true缺失与为0的情况，输入 error = 0, 输入 为0,自然计算
+        # 本质上不是y_true的问题，而是任意信道区分0与空的问题
+        # 物理上不存在在这个问题，0就是空。所以我们应该尽量避免0的编码，比如在word2vec中。
+        # 方法一：假设全为0即为空。
+        # 方法二：输入额外的信号。
+        # 这里我们选择方法一。
+        y_true_on = get_sum(self.neurons[1].states)>0.01
+        y,y_true = self.neurons[0].states, self.neurons[1].states
+        logging.debug("mse xxx".format(self.neurons[0].name, y.shape, self.neurons[1].name, y_true.shape))
+        target = 0
+        # y.requires_grad = True
+        # y_true.requires_grad = True
+        if y_true_on:
+            target = get_mse(y, y_true)
+            # self.max_target = max(self.max_target, target)
+        logging.debug("MSE ".format(sys._getframe().f_lineno, self.__str__()))
+        for n in self.neurons:
+            logging.debug(n)
+        logging.debug("finish states dynamic")
+        logging.debug("mse get target = {}".format(target))
+        return [0,0,target]
 
 class HebbianSynpase(Synpase):
     """基于hebbian来学习的突触
@@ -90,10 +141,23 @@ class STDPSynpase(Synpase):
         synpase_update = self.post_devirate*pre_states
         return synpase_update
 
-class ErrorBPSynpase(Synpase):
-    """基于反向传播来传播梯度的突触"""
+class LinearErrorBPSynpase(Synpase):
+    
+    def inference_neuron_error_impact(self):
+        """标准的error反向传播"""
+        error1, error2 = self.neurons[0].error, self.neurons[1].error
+        impact_2 = 0
+        if self.error:
+            impact_1 = get_matmul(error2, self.weights, transpose_b=True)
+        else:
+            impact_1 = 0
+        return [impact_1, impact_2]
+
+class GradientDescentSynpase(Synpase):
+    """基于最大负梯度方向提升参数的突触"""
     
     def learning_synpase_impact(self):
+        # TODO: 定义错了, BP有2个环节，一个反向传播梯度，一个是用梯度修正参数。
         states1 = self.neurons[0].out_states
         # 按公式是要用out_states
         error2 = self.neurons[1].error
@@ -105,7 +169,7 @@ class RTRLLearning(Synpase):
     pass
 
 class SnapKSynpase(SparseSynpase):
-    def __init__(self, k = 1, * args, ** xargs)
+    def __init__(self, k = 1, * args, ** xargs):
         # 这里是考虑泛化的形式one_step_module
         # Snap 把不同rnn的相关函数实现切割出来，让结构突触自己去定义， sparse(朴素rnn, gru, bilstm)。
         # 问题是不同的计算结构对稀疏产生了挑战
@@ -170,3 +234,7 @@ class SnapKSynpase(SparseSynpase):
         for i in range(len(self.grad_of_state_param)):
             self.one_step_module.params[i]+=self.error*self.grad_of_state_param[i]
 
+# 使用type(Name, baseclasses)可以动态创建class
+# BP 类型的连接
+from .synpase_inference import LinearSynpase
+LinearBPSynpase = type("PSynpase",(LinearSynpase, LinearErrorBPSynpase, GradientDescentSynpase), {})

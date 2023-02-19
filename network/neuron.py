@@ -12,11 +12,13 @@ Neuron，ForwardNeuron， SpikingNeuron。
 import argparse
 import os
 import sys
+import logging
 
 import numpy as np
 
 sys.path.append("..")
 from op import *
+from util.log import log_info, log_debug
 
 all_neuron_names = set([])
 
@@ -30,7 +32,7 @@ class Neurons(object):
     """
     神经元类，包括状态变量、激发函数、历史影响（泄露比例或者内部rnn）等要素
     """
-    def __init__(self, states_init = 0.00 ,
+    def __init__(self, states_init = 0.01 ,
                  shape=None,
                  name = None,
                  requires_grad = False,
@@ -58,9 +60,11 @@ class Neurons(object):
         extend_vars: more neuron vars
         TODO: add neuron -error dynamics
         """
+        # TODO : use random
         if shape: self.states_init = np.full(shape,states_init)
         else:self.states_init = states_init
         self.shape = self.states_init.shape
+        self.error = None
         if name == None:
             name = "neruon"
         if name in all_neuron_names:
@@ -72,7 +76,7 @@ class Neurons(object):
         self.name = name
         self.requires_grad = requires_grad
         self.states = get_variable(self.states_init, name=name, requires_grad = requires_grad)
-        self.leak = get_variable(leak_init)
+        self.leak = get_variable(leak)
         self.synpase_impact = []
         self.clamped = False
         self.activation = get_activation(activation)
@@ -85,7 +89,7 @@ class Neurons(object):
             self.inter_rnn_synpase = rnn_synpase_type([self, self])
         
         self.init_more()
-        print("new created", self.__str__())
+        logging.info("new created {}".format(self.__str__()))
 
     def __str__(self):
         s = "neuron, name = {} , shape = {}, dtype = {}, requires_grad = {}, id  = {}".format(
@@ -100,6 +104,7 @@ class Neurons(object):
 
     def get_val(self):
         """return value of states"""
+        return self.states
 
     def set_val(self, val, clamped = False):
         """set value of states of visiable neurons"""
@@ -118,27 +123,30 @@ class Neurons(object):
         assign_add(self.error, val)
 
     def add_impact(self, impact):
-        print("add impact", impact)
-        if not impact: return None
+        logging.debug("add impact {} ".format(impact))
+        if impact is None: return None
         if self.clamped: return None
-            self.sum_states_impacts = self.sum_states_impacts + impact[0]
+        # self.sum_states_impacts = self.sum_states_impacts + impact[0]
         self.sum_states_impacts = self.sum_states_impacts + impact
         return None
 
+    def update_states_by_error(self):
+        return 0
+
     def dynamic(self):
+        logging.debug("before neuron-dynamic, neuron = {}".format(self.__str__()))
+        logging.debug("states = {}".format(self.states))
         self.last_states = self.states
-        print("before forward", self.__str__())
-        input("start forward"+self.__str__())
         if self.inter_rnn_synpase:
             self.inter_rnn_synpase.neuron_dynamic()
         self.states = (1-self.leak)*self.states+self.sum_states_impacts
         self.states = self.states + self.update_states_by_error()
         self.out_states = self.activation(self.states)
         self.sum_states_impacts = 0
+        logging.debug("after neuron-dynamic, neuron = {}".format(self.__str__()))
+        logging.debug("new states = {}".format(self.states))
     
-        print("after forward", self.__str__())
-
-class ErrorNeuons(Neurons):
+class ErrorNeurons(Neurons):
     """
     包含error项的neuron, error项表示neuron表征距离期望状态的偏离或者梯度。
     学习系统的神经元往往包括以下几项error：
@@ -148,7 +156,7 @@ class ErrorNeuons(Neurons):
     在反馈网络BP中，前向梯度的算法中，第二项是关键。朴素的算法需要存储N*M的梯度矩阵，N是神经元状态数，M是参数量；优化的算法存储M的状态数。
     """
 
-    def __init__(self, bp2states_ratio = 0， error_leak = 0.1, *args, **xargs):
+    def __init__(self, bp2states_ratio = 0, error_leak = 0.1, *args, **xargs):
         # 内置Error项
         # 这里目前只考虑前向网络的梯度 TODO
         super().__init__(*args, **xargs)
@@ -163,15 +171,17 @@ class ErrorNeuons(Neurons):
 
     def dynamic(self):
         super().dynamic()
+        logging.debug("error = {}".format(self.error))
         self.error = (1-self.error_leak)*self.error+self.sum_error_impacts
         # TODO: add tbptt error
         # Consider different activation
         # self.out_error = self.activation(self.error)
         self.sum_error_impacts = 0
+        logging.debug("new error = {}".format(self.error))
     
     def add_error_impact(self, impact):
-        print("add impact", impact)
-        if not impact: return None
+        logging.debug("add error impact = {}".format(impact))
+        if impact is None: return None
         if self.clamped: return None
         self.sum_error_impacts = self.sum_error_impacts + impact
         return None

@@ -12,15 +12,17 @@ description
 
 import os
 import sys
+import logging
 
 import argparse
 import numpy as np
+import torch
 
 from .neuron import Neurons
 
 sys.path.append("..")
 from op import *
-import torch
+from util.log import log_info, log_debug
 
 class Synpase(object):
     """Synpase基类, 定义了Neuron之间的通信动力学(inference), 以及自身学习的动力学(learning)
@@ -57,7 +59,7 @@ class Synpase(object):
         if synpase_inits is not None:
             self.weights = get_variable(synpase_inits)
             self.shape = self.weights.shape
-            print(synpase_inits.shape, self.weights.shape)
+            logging.debug((synpase_inits.shape, self.weights.shape))
         else:
             self.weights = None
             self.shape = None
@@ -67,7 +69,7 @@ class Synpase(object):
         self.init_more()
         self.allow_weights_update = True
         self.sub_synpases = []
-        print("new created", self.__str__())
+        logging.info("new created synpase = {}".format(self.__str__()))
 
     def __str__(self):
         if self.weights is not None:
@@ -87,18 +89,19 @@ class Synpase(object):
         # 这个lr 是全局的还是局部的，应该是可选的。如果是局部的，就把全局的设置为1
         # 除了学习率，还有个freeze的概念。如果freeze就要临时把lr设置为0
         self.neurons_impacts = self.inference_neuron_states_impact()
-        print(lstr(self.neurons_impacts))
-        for k,impact in enumerate(self.neurons_impacts):
-            print(self.name, "add impact", k, impact)
-            self.neurons[k].add_impact(impact)
+        logging.debug("inference_dynamic, neuron_impacts = {}".format(lstr(self.neurons_impacts)))
+        if self.neurons_impacts is not None:
+            for k,impact in enumerate(self.neurons_impacts):
+                logging.debug("{} add impact {}".format(self.name,impact))
+                self.neurons[k].add_impact(impact)
     
     def inference_neuron_states_impact(self):
         """神经元的显式states变化"""
-        return 0
+        raise("Not Implemented")
 
     def inference_neuron_error_impact(self):
         """神经元的隐式error变化"""
-        return 0
+        raise("Not Implemented")
 
     def learning_rate_dynamic(self):
         pass
@@ -108,22 +111,30 @@ class Synpase(object):
         # 这个环节往往依赖突触2侧的状态或者 RNN前后的状态
         # 最好是存在计算依赖的2个状态 y = f(x), 或者 x_t = f(x_t-1)
         # 所以把这个环节放在inference后边
+        logging.info("synpase {} start learning".format(self.name))
         self.error_impacts = self.inference_neuron_error_impact()
-        print(lstr(self.neurons_impacts))
-        for k,impact in enumerate(self.error_impacts):
-            print(self.name, "add impact", k, impact)
-            self.neurons[k].add_error_impact(impact)
+        logging.info("error impact = ".format(self.error_impacts))
+        if self.error_impacts is not None:
+            for k,impact in enumerate(self.error_impacts):
+                logging.debug("neuron {} add error impact {} {}".format(self.name,k, impact))
+                print(self.name)
+                print(impact)
+                if impact is not None and impact is not 0:
+                    print(impact.sum())
+                    if self.neurons[k].error is not None:
+                        self.neurons[k].add_error_impact(impact)
 
         # 先假设所有synpase只有一个weight
         if self.allow_weights_update:
             synpase_impacts = self.learning_synpase_impact()
             self.learning_rate_dynamic()
-            print(self.__str__())
-            print("weights", self.weights.shape)
-            print("impacts", synpase_impacts.shape)
-            self.weights+=synpase_impacts*self.learning_rate
+            logging.debug(self.__str__())
+            if synpase_impacts is not None:
+                logging.debug("weights shape = {}".format(self.weights.shape))
+                logging.debug("impacts shape = {}".format(synpase_impacts.shape))
+                self.weights+=synpase_impacts*self.learning_rate
             # 元学习中子突触学习
-            for synpase for self.sub_synpases:
+            for synpase in self.sub_synpases:
                 synpase.learning_dynamic()
     
     def learning_synpase_impact(self):

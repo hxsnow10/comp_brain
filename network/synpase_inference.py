@@ -11,46 +11,17 @@
 
 import os
 import sys
+import logging
 
 import argparse
+from .synpase_base import Synpase
+from .neuron import Neurons, ErrorNeurons
+import numpy as np
 
-class MseSynpase(TargetBPSynpase):
-    """3个神经元群的突触:x,y,mse目标
-    """
-   
-    target_ne_idx = 2
-    def init_more(self):
-        self.max_target = 0
-
-    def learning_dynamic(self):
-        """无参数，不需要自我学习"""
-        pass
-
-    def inference_neuron_states_impact(self):
-        print("MSE ", sys._getframe().f_lineno, self.__str__())
-        input("start states dynamic"+self.__str__())
-        for n in self.neurons:
-            print(n)
-        # 需要考虑输入y_true缺失与为0的情况，输入 error = 0, 输入 为0,自然计算
-        # 本质上不是y_true的问题，而是任意信道区分0与空的问题
-        # 物理上不存在在这个问题，0就是空。所以我们应该尽量避免0的编码，比如在word2vec中。
-        # 方法一：假设全为0即为空。
-        # 方法二：输入额外的信号。
-        # 这里我们选择方法一。
-        y_true_on = get_sum(self.neurons[1].states)>0.01
-        y,y_true = self.neurons[0].states, self.neurons[1].states
-        print("mse xxx", self.neurons[0].name, y.shape, self.neurons[1].name, y_true.shape)
-        target = 0
-        # y.requires_grad = True
-        # y_true.requires_grad = True
-        if y_true_on:
-            target = get_mse(y, y_true)
-            # self.max_target = max(self.max_target, target)
-        print("MSE ", sys._getframe().f_lineno, self.__str__())
-        for n in self.neurons:
-            print(n)
-        input("finish states dynamic")
-        return [0,0,target]
+sys.path.append("..")
+from op import *
+from util.log import log_info, log_debug
+import torch
 
 class LinearSynpase(Synpase):
     """标准突触：单向线性动力学的突触
@@ -65,15 +36,18 @@ class LinearSynpase(Synpase):
         impact_2 = get_matmul(states1, self.weights)
         return [0, impact_2]
 
-    def inference_neuron_error_impact(self):
-        """标准的error反向传播"""
-        error1, error2 = self.neurons[0].error, self.neurons[1].error
-        impact_2 = 0
-        if self.error:
-            impact_1 = get_matmul(error2, self.weights, transpose_b=True)
-        else:
-            impact_1 = 0
-        return [impact_1, impact_2]
+class CompDefSynpase(Synpase):
+    
+    def __init__(self, neurons, comp_def, error = True):
+        super(LinearSynpase, self).__init__(neurons, name, synpase_inits = None)
+        self.error = error
+        self.comp_def = comp_def
+        # TODO weights
+    
+    def inference_neuron_states_impact(self):
+        states1, states2 = self.neurons[0].states, self.neurons[1].states
+        impact_2 = self.comp_def(states1)
+        return [0, impact_2]
 
 class RecurrentSynpase(Synpase):
     """标准突触：简单的单神经元群的反馈连接突触
@@ -154,9 +128,6 @@ class SparseSynpase(RecurrentSynpase):
         # impact = torch.sparse.mm(self.weights,states)
         return impact
 
-# 使用type(Name, baseclasses)可以动态创建class
-# BP 类型的连接
-LinearBPSynpase = type("PSynpase",(LinearSynpase, ErrorBPSynpase), {})
 
 def general_mlp(
         x,y,
@@ -170,8 +141,9 @@ def general_mlp(
     synpases = []
     h_layer_num = len(hidden_layer_sizes)
     x_neurons = [x]
+    batch_size = x.shape[0]
     for l in range(h_layer_num):
-        x_neurons.append(Neurons(shape = [64,hidden_layer_sizes[l]], rnn_synpase_type = neuron_inter_synpase_type, error=True,
+        x_neurons.append(ErrorNeurons(shape = [batch_size,hidden_layer_sizes[l]], name = "mlp_{}_{}_{}".format(x.name, y.name,l),rnn_synpase_type = neuron_inter_synpase_type, error=True,
                                 bp2states_ratio = states2error))
         synpase = synpase_type([x_neurons[l], x_neurons[l+1]])
         synpases.append(synpase)
