@@ -118,6 +118,9 @@ class Network():
         output_names = output_names or self.output_names
         for t in range(time_step_num):
             self.clamp_inputs(inputs, input_names)
+            # 首先对每个神经元的states与out_states进行detach
+            for neuron in self.name2neurons.values():
+                neuron.detach()
             for name,synpase in self.name2synpases.items():
                 synpase.inference_dynamic()
             for neuron in self.name2neurons.values():

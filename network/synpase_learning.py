@@ -159,7 +159,6 @@ class GradientDescentSynpase(Synpase):
     def learning_synpase_impact(self):
         # TODO: 定义错了, BP有2个环节，一个反向传播梯度，一个是用梯度修正参数。
         states1 = self.neurons[0].out_states
-        # 按公式是要用out_states
         error2 = self.neurons[1].error
         rval = get_matmul(get_expand_dims(states1,2),get_expand_dims(error2,1))
         rval = torch.sum(rval, dim = 0)

@@ -32,7 +32,7 @@ class LinearSynpase(Synpase):
         self.error = error
     
     def inference_neuron_states_impact(self):
-        states1, states2 = self.neurons[0].states, self.neurons[1].states
+        states1, states2 = self.neurons[0].out_states, self.neurons[1].states
         impact_2 = get_matmul(states1, self.weights)
         return [0, impact_2]
 
@@ -45,7 +45,7 @@ class CompDefSynpase(Synpase):
         # TODO weights
     
     def inference_neuron_states_impact(self):
-        states1, states2 = self.neurons[0].states, self.neurons[1].states
+        states1, states2 = self.neurons[0].out_states, self.neurons[1].states
         impact_2 = self.comp_def(states1)
         return [0, impact_2]
 
@@ -85,11 +85,18 @@ class BiLinearSynpase(Synpase):
         super(BiLinearSynpase, self).__init__(neurons, name, synpase_inits = synpase_inits)
 
     def inference_neuron_states_impact(self):
-        states1, states2 = self.neurons[0].states, self.neurons[1].states
+        states1, states2 = self.neurons[0].out_states, self.neurons[1].states
         impact_2 = self.go_factor * get_matmul(states1, self.weights)
         impact_1 = self.back_factor * \
             get_matmul(states2, self.weights, transpose_b=True)
         return [impact_1, impact_2]
+
+
+class RNNLearningSynpase(Synpase):
+    """RNN有一些学习的方法，核心是求一些中间变量。
+    
+    """
+
 
 class SparseSynpase(RecurrentSynpase):
     """稀疏反馈突触。
@@ -123,7 +130,7 @@ class SparseSynpase(RecurrentSynpase):
         return edge_indicies
 
     def inference_neuron_states_impact(self, inp):
-        states= self.neurons[0].states
+        states= self.neurons[0].out_states
         impact = mm(self.weights,states)
         # impact = torch.sparse.mm(self.weights,states)
         return impact

@@ -76,14 +76,18 @@ class SimpleSupervisedEnv(DataBasedEnv):
     2. x,y 一次性给x,y其实也是可以,就是收敛路径不同，结果是一致的。
      2.* 一次性给x,y 在某些error影响x（即y_true影响x）算法中，最后收敛的error会有gap
     """
-    def __init__(self, ori_data):
+    def __init__(self, ori_data, sample_split = None):
         self.ori_data = ori_data
+        self.sample_split = sample_split
 
     def reset_buffer(self):
-        self.env_buffer = [next(self.ori_data)]
+        if sample_split:
+            self.env_buffer = self.sample_split(next(self.ori_data))
+        else:
+            self.env_buffer = [next(self.ori_data)]
         self.t = 0
 
-class SeqEnv(object):
+class SeqEnv(DataBasedEnv):
     """监督数据{x,y}涉及到Seq展开的env形态
     x,y 都可能涉及展开。
     """

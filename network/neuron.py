@@ -48,7 +48,7 @@ class Neurons(object):
         name: name string
         shape: 一般是[batch_size, neuron_size]
         init_states: 初始值
-        leak: 默认值 TODO: 进一步 leak也可以是一个函数.
+        leak: 默认值 TODO: 进一步 leak也可以是一个函数,即LSTM、GRU的思想。
         TODO: add LTF activation
         self_dynamics:
             * "rnn_train"
@@ -95,6 +95,15 @@ class Neurons(object):
         s = "neuron, name = {} , shape = {}, dtype = {}, requires_grad = {}, id  = {}".format(
             self.name, self.states.shape, self.states.dtype, self.states.requires_grad, id(self.states))
         return s
+
+    def detach(self):
+        # TODO：需要仔细考虑detach
+        # x_{t+1}=F(x_{t}, in_{t})，如果涉及到反向传播，我们不希望传递到x_{t}, in_{t}后边
+        # 即到了x_{t}，in_{t}的隐变量完善后，就进行detach
+        # 所以这个detach最好是在一个步伐（包括inference, learning)完成后再做。
+        # 或者是这里对输入x_t,in_t进行detach
+        self.states = self.states.detach()
+        self.out_states = self.out_states.detach()
 
     def init_states(self):
         self.states = get_variable(self.states_init, name=self.name, requires_grad = self.requires_grad)
