@@ -7,13 +7,17 @@
 #   Description:    ---
 """synpases.
 
-核心2个函数 
-    * inference_dynamic: 前向相关的动力学, 对相关neuron的更新
-    * learning_dyanmic: 学习相关的动力学，对synpase自身的更新
+learning核心2个模块：
+    隐变量（梯度）的传播
+    根据梯度更新weights
 
-实际上机器学习由3阶段组成 1）前向 2）梯度反向 3）参数更新。
-2从功能上支持learning，不影响inference;但从发生的阶段上看，2与1往往是同时进行的，哪怕目标信号还未产生，在RTRL类算法中也可以存储中间变量dh/dw。
-这里把它归结到learning_dynamic，是learning的隐变量的提前更新环节。
+关于算法的通用性：实际上learning就是对Inference（实际上式各函数）的梯度传播与参数的学习。
+通用性来自在实现learning的时候，不需要知道inference函数具体内容。
+
+所以算法本质上一定具备通用性；虽然实现上未必可以直接适配任意的函数,大多数是可以的。
+
+实际上涉及2种函数:前馈x-y; 自反馈x-x
+
 """
 
 import os
@@ -142,6 +146,7 @@ class STDPSynpase(Synpase):
         return synpase_update
 
 class LinearErrorBPSynpase(Synpase):
+    # TODO: 把这个泛化到任意函数的Infernce上
     
     def inference_neuron_error_impact(self):
         """标准的error反向传播"""
@@ -152,6 +157,22 @@ class LinearErrorBPSynpase(Synpase):
         else:
             impact_1 = 0
         return [impact_1, impact_2]
+
+class GeneralForwardErrorBPSynpase(Synpase):
+
+    def inference_neuron_error_impact(self):
+        """
+        """
+        error1, error2 = self.neurons[0].error, self.neurons[1].error
+        impact_2 = 0
+        # TODO: 这里也可以考虑直接backwrad()
+        d21 = jacobian(self.neurons[1].states, self.neuron[0].last_states)
+        if self.error:
+            impact_1 = get_matmul(error2, d21, transpose_b=True)
+        else:
+            impact_1 = 0
+        return [impact_1, impact_2]
+        
 
 class GradientDescentSynpase(Synpase):
     """基于最大负梯度方向提升参数的突触"""

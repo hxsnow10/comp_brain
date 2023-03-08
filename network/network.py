@@ -63,7 +63,17 @@ import logging
 sys.path.append("..")
 from util.log import log_info, log_debug
 
-class Network():
+
+# 显式包含neuron与synpase的network
+class Network(object):
+    """网络，抽象类：作为agent的核心模块。
+    """
+
+    def apply(self, inputs = None, input_names=None, output_names=None, time_step_num=1):
+        pass
+
+
+class NSNetwork(Network):
     """ a class to manage neurons, synpases, forward, backword
     """
 
@@ -148,7 +158,6 @@ class Network():
             return [self.name2neurons[na].get_val() for na in name]
         return self.name2neurons[name].get_val()
 
-
     def add_synpase(self, synpases):
         if type(synpases)!=type([1,2,3]):
             synpases = [synpases]
@@ -163,7 +172,6 @@ class Network():
                         neuron.activation = leak
                     self.name2neurons[neuron.name] = neuron
         logging.info("after add synpase")
-    
     
     def check_neurons(self, process_name=""):
         logging.info("check_neurons, process_name = {}".format(process_name))

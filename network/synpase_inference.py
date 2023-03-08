@@ -6,7 +6,6 @@
 #   Create:         2022/12/22
 #   Description:    ---
 """关于inference的synpase的类。
-
 """
 
 import os
@@ -23,57 +22,22 @@ from op import *
 from util.log import log_info, log_debug
 import torch
 
+def linear_one_step(weights,out_states):
+    impact = get_matmul(out_states[0], weights)
+    return [0, impact]
+
 class LinearSynpase(Synpase):
     """标准突触：单向线性动力学的突触
     """
     def __init__(self, neurons, name = None, error=True):
         synpase_inits = np.full([neurons[0].shape[-1], neurons[1].shape[-1]], 0.01)
+        TODO: init random
         super(LinearSynpase, self).__init__(neurons, name, synpase_inits = synpase_inits)
         self.error = error
     
     def inference_neuron_states_impact(self):
-        states1, states2 = self.neurons[0].out_states, self.neurons[1].states
-        impact_2 = get_matmul(states1, self.weights)
+        impact_2 = get_matmul(self.neurons[0].out_states, self.weights)
         return [0, impact_2]
-
-class CompDefSynpase(Synpase):
-    
-    def __init__(self, neurons, comp_def, error = True):
-        super(LinearSynpase, self).__init__(neurons, name, synpase_inits = None)
-        self.error = error
-        self.comp_def = comp_def
-        # TODO weights
-    
-    def inference_neuron_states_impact(self):
-        states1, states2 = self.neurons[0].out_states, self.neurons[1].states
-        impact_2 = self.comp_def(states1)
-        return [0, impact_2]
-
-class RecurrentSynpase(Synpase):
-    """标准突触：简单的单神经元群的反馈连接突触
-    """
-    def __init__(self, neurons, name = None, error=True):
-        synpase_inits = np.full([neurons[0].shape[-1], neurons[0].shape[-1]], 0.01)
-        super(LinearSynpase, self).__init__(neurons, name, synpase_inits = synpase_inits)
-        self.error = error
-
-    def inference_neuron_states_impact(self):
-        states, states = self.neurons[0].states
-        impact_2 = get_matmul(states1, self.weights)
-        return [impact_2]
-
-class GRURecurrentSynpase(RecurrentSynpase):
-    
-    def __init__(self, neurons, name = None, error=True):
-        synpase_inits = np.full([neurons[0].shape[-1], neurons[0].shape[-1]], 0.01)
-        #TODO 涉及多个参数
-        super(LinearSynpase, self).__init__(neurons, name, synpase_inits = synpase_inits)
-        self.error = error
-
-    def inference_neuron_states_impact(self):
-        states, states = self.neurons[0].states
-        impact_2 = get_matmul(states1, self.weights)
-        return [impact_2]
 
 class BiLinearSynpase(Synpase):
     """双向线性动力学的突触
@@ -91,17 +55,52 @@ class BiLinearSynpase(Synpase):
             get_matmul(states2, self.weights, transpose_b=True)
         return [impact_1, impact_2]
 
-
-class RNNLearningSynpase(Synpase):
-    """RNN有一些学习的方法，核心是求一些中间变量。
-    
+class SimpleRecurrentSynpase(Synpase):
+    """标准突触：简单的单神经元群的反馈连接突触
+    与一般的synpase并无区别，输入与输出都是同一组神经元的就是recuurrent。
     """
+    def __init__(self, neurons, name = None, error=True):
+        assert len(neurons)==1
+        synpase_inits = np.full([neurons[0].shape[-1], neurons[0].shape[-1]], 0.01)
+        super(LinearSynpase, self).__init__(neurons, name, synpase_inits = synpase_inits)
+        self.error = error
 
+    def inference_neuron_states_impact(self):
+        impact = get_matmul(self.neurons[0].out_states, self.weights)
+        return [impact]
+
+class GRURecurrentSynpase(RecurrentSynpase):
+    """ TODO： 直接泛化到任意的cell上
+    nn.RNNcell
+    nn.LSTMCell
+    """
+    def __init__(self, neurons, name = None, error=True):
+        # synpase_inits = np.full([neurons[0].shape[-1], neurons[0].shape[-1]], 0.01)
+        # TODO 涉及多个参数
+        # super(LinearSynpase, self).__init__(neurons, name, synpase_inits = synpase_inits)
+        self.gru_cell = torch.nn.GRUCell()
+
+    def inference_neuron_states_impact(self):
+        inputs = self.neurons[0].output_states
+        states = self.neurons[1].states
+        new_states = self.gru_cell(inputs, states)
+        # 或者直接neuron leak=1 或者把gru拆了，把reset gates传过来
+        # 这里为了简单性，就把neuron leak=1
+        # 这样不行，如果某个神经元群与多个输入连接，就做了多次的reset
+        # 把forget也作为neuron的某种状态，接受synpase的输入
+        return [new_states]
 
 class SparseSynpase(RecurrentSynpase):
     """稀疏反馈突触。
+
+    sparseSimpleRNN
+    sparseGRU
+    sparseLSTM
+
+
+    TODO
     不具体设定计算，泛化成任意的突触计算，方便应用到BILSTM, GRU上。
-    1. 把参数替换成稀疏矩阵
+    1. 把参数替换成稀疏矩阵；理想上可行，但又可能稀疏矩阵与一般矩阵用的不用的函数，那就完了。
     2. 矩阵乘法根据是否稀疏灵活处理
     初始化一般是根据度分布随机采样连接；但是学习的时候有2种策略1）不修改连接拓扑  2）修改连接拓扑
     """

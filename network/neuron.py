@@ -26,11 +26,34 @@ all_neuron_names = set([])
 区别于基于计算图的编程方式:y = f(x)，
 这里使用基于神经元动力学的编程方式:link(x,y,f) 或者 y.add(f(x))
 动力学方式结构上更清晰，属于RNN，契合存算一体。
+但是为了表达能力，不能使用纯粹的简单RNN，而要允许任意的算子。
+所以总的来说，就是个高级RNN。我写的复杂了！
 """
 
 class Neurons(object):
-    """
-    神经元类，包括状态变量、激发函数、历史影响（泄露比例或者内部rnn）等要素
+    """Neurons这里定义为近似生物神经元的类,包括
+    * 状态变量states
+    * 激发函数f(states, inputs)->out_states
+    * 自身动力学states->next_states
+    * 隐变量：包括grad(target,states)等
+
+    应当认识到这种定义不如计算图中的variable, function切分那样的简单的、通用。
+    这种定义是对生物神经元的近似抽象。
+
+    neurons可以认为是生物机制对variable的扩展类:
+    * 激发函数是为了通信的高效性(float->spike)
+    * 自身动力学表征自身是一个动态系统，而非简单的variable，动力学可能包括
+    ** 无历史影响
+    ** 简单leak f(states, inputs)->g(inputs)+(1-leak)*states
+    ** 动态leak f(states, inputs)->g(inputs)+(1-leak(states,inputs))*states
+    ** 内部存在RNN互联 f(states, inputs)->g(inputs)+rnn(states)
+    * 隐变量主要是为了对梯度（优化方向)的计算
+    这种扩展类，看起来是合理的。variable可以作为neurons的一种子类。
+
+    但这种对variable与function的融合，会导致算法的实现不够通用；
+        ！！这里需要考虑在实现任意BP近似算法时，尽量在更广泛的背景上(variable, function)实现。
+        主要是BP近似算法面相任意function上实现，那么这里内部的函数也可以直接调用。
+        ?? 在这个架构里考虑BP近似算法是不是本身就不够通用呢？
     """
     def __init__(self, states_init = 0.01 ,
                  shape=None,
@@ -148,6 +171,9 @@ class Neurons(object):
         self.last_states = self.states
         if self.inter_rnn_synpase:
             self.inter_rnn_synpase.neuron_dynamic()
+        # 这个leak可以作为与所有Inputs以及这个神经元连接的另一个神经元，来表述
+        # 存在神经元乘法的困难leak.output*non.states
+        # 这里可以leak表达成与状态类似的某种内部状态，但是需要做归一化后使用。
         self.states = (1-self.leak)*self.states+self.sum_states_impacts
         self.states = self.states + self.update_states_by_error()
         self.out_states = self.activation(self.states)
@@ -189,10 +215,14 @@ class ErrorNeurons(Neurons):
         logging.debug("new error = {}".format(self.error))
     
     def add_error_impact(self, impact):
+        """这里可能涉及到更复杂的，甚至可学习的隐变量合并过程
+        有没有可能把加法挪到synpase里去实现
+        """
         logging.debug("add error impact = {}".format(impact))
         if impact is None: return None
         if self.clamped: return None
         self.sum_error_impacts = self.sum_error_impacts + impact
+        # 应当注意到在BP的背景里，这个函数与add_impact对应，是它的梯度计算形式。
         return None
 
 class ForwardNeurons(Neurons):
