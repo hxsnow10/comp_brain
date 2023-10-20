@@ -26,6 +26,11 @@ def flatten_size(param):
     for x in param.shape:
         n = n*x
     return n
+"""
+这些算法能否整合到neuron, synpase框架里？可以，会涉及error形式的较大变化。
+1. 这些算法核心主要包括2部分，隐变量的更新，参数的更新。
+2. 这些算法主要描述自反馈连接的梯度。前向连接不考虑存在环路，而自反馈环路是主要特征。
+"""
 
 class RTRL(object):
 

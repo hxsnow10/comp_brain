@@ -86,8 +86,8 @@ def get_sum(val):
 
 def get_matmul(a, b, transpose_a=False, transpose_b = False):
     # TODO: transpose
-    print(a.shape, a.dtype)
-    print(b.shape, b.dtype)
+    # print(a.shape, a.dtype)
+    # print(b.shape, b.dtype)
     if kernel == "tf":
         return tf.matmul(a,b, transpose_a = transpose_a, transpose_b = transpose_b)
     else:
@@ -104,7 +104,7 @@ def get_transpose(a, dim1 = 0, dim2 = 1):
         return torch.transpose(a, dim1, dim2)
 
 def get_mse(a, b):
-    print("mse_input", a.shape, b.shape)
+    # print("mse_input", a.shape, b.shape)
     if kernel =="tf":
         return tf.keras.metrics.mean_squared_error(a,b)
     else:
