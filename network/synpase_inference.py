@@ -31,7 +31,7 @@ class LinearSynpase(Synpase):
     """
     def __init__(self, neurons, name = None, error=True):
         synpase_inits = np.full([neurons[0].shape[-1], neurons[1].shape[-1]], 0.01)
-        TODO: init random
+        # TODO: init random
         super(LinearSynpase, self).__init__(neurons, name, synpase_inits = synpase_inits)
         self.error = error
     
@@ -69,7 +69,7 @@ class SimpleRecurrentSynpase(Synpase):
         impact = get_matmul(self.neurons[0].out_states, self.weights)
         return [impact]
 
-class GRURecurrentSynpase(RecurrentSynpase):
+class GRURecurrentSynpase(SimpleRecurrentSynpase):
     """ TODO： 直接泛化到任意的cell上
     nn.RNNcell
     nn.LSTMCell
@@ -90,7 +90,7 @@ class GRURecurrentSynpase(RecurrentSynpase):
         # 把forget也作为neuron的某种状态，接受synpase的输入
         return [new_states]
 
-class SparseSynpase(RecurrentSynpase):
+class SparseSynpase(SimpleRecurrentSynpase):
     """稀疏反馈突触。
 
     sparseSimpleRNN

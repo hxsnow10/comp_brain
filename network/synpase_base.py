@@ -35,7 +35,7 @@ class Synpase(object):
     def __init__(self,
                  neurons,
                  name = None,
-                 one_step = None
+                 one_step = None,
                  synpase_shapes = None,
                  synpase_inits = None,
                  learning_rate_init = 0.01,
